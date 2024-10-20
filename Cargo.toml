@@ -1,0 +1,13 @@
+workspace = { members = ["libs/card", "libs/mana", "libs/simulate"] }
+[package]
+name = "mtg-pet-simulator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+[dependencies.card]
+path = "./libs/card"
+
+[dependencies.simulate]
+path = "./libs/simulate"
