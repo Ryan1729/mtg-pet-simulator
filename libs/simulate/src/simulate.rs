@@ -17,9 +17,10 @@ pub enum Outcome {
 }
 use Outcome::*;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum CalculateError {
     DeckTooLarge,
+    PermutationNumberTooHigh,
 }
 use CalculateError::*;
 
@@ -64,17 +65,80 @@ fn draw(deck: Deck) -> Option<(Deck, Card)> {
 
 fn nth_ordered(
     deck: &[Card],
-    n: PermutationNumber
+    mut n: PermutationNumber
 ) -> Result<Deck, CalculateError> {
-   todo!()
+    let len = deck.len();
+    // Based on https://stackoverflow.com/a/7919887
+
+    let mut fact = Vec::with_capacity(len);
+    let mut perm = Vec::with_capacity(len);
+
+    // compute factorial numbers
+    fact.push(1);
+    for i in 1..len {
+        fact.push(fact[i - 1] * i);
+    }
+    assert_eq!(fact.len(), len);
+
+    // compute factorial code
+    for i in 0..len {
+        let div = n / fact[len - 1 - i];
+        if div >= len {
+            return Err(PermutationNumberTooHigh);
+        }
+        perm.push(div);
+        n = n % fact[len - 1 - i];
+    }
+
+    // readjust values to obtain the permutation
+    // start from the end and check if preceding values are lower
+    for i in (1..=(len - 1)).rev() {
+        for j in (0..=(i - 1)).rev() {
+            if perm[j] <= perm[i] {
+                perm[i] += 1;
+            }
+        }
+    }
+
+    // Apply the permutation to the input deck
+    let mut output = Vec::with_capacity(len);
+
+    for i in 0..len {
+        output.push(deck[perm[i]])
+    }
+
+    Ok(output.into_boxed_slice())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn it_works() {
-        todo!();
+    mod nth_ordered_works {
+        use super::*;
+
+        const _0: Card = InsatiableAvarice;
+        const _1: Card = SchemingSymmetry;
+        const _2: Card = FeedTheSwarm;
+
+        #[test]
+        fn on_all_the_three_element_permutations() {
+            const decks: [[Card; 3]; 6] = [
+                [_0, _1, _2],
+                [_0, _2, _1],
+                [_1, _0, _2],
+                [_1, _2, _0],
+                [_2, _0, _1],
+                [_2, _1, _0],
+            ];
+
+            for i in 0..decks.len() {
+                let actual = nth_ordered(&decks[0], i).expect("");
+                assert_eq!(*actual, decks[i], "mismatch at {i}");
+            }
+
+            let result = nth_ordered(&decks[0], decks.len());
+            assert_eq!(result, Err(PermutationNumberTooHigh), "Mismatch at one past the last valid permutation number");
+        }
     }
 }
