@@ -10,7 +10,7 @@ pub enum Spec {
 }
 use Spec::*;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Outcome {
     Lose,
     Win,
@@ -54,7 +54,45 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcome, CalculateError> {
         }
     }
 
-    todo!();
+    while let Some((d, card)) = draw(deck) {
+        hand.push(card);
+        deck = d;
+
+        
+    }
+
+    return Ok(Lose);
+}
+
+#[cfg(test)]
+mod calculate_works {
+    use super::*;
+
+    const _0: Card = InsatiableAvarice;
+    const _1: Card = SchemingSymmetry;
+    const _2: Card = FeedTheSwarm;
+
+    #[test]
+    fn on_all_swamps() {
+        let _60_swamps = [Swamp; 60];
+
+        const specs: [Spec; 7] = [
+            NthDraw(0),
+            NthDraw(1),
+            NthDraw(10),
+            NthDraw(100),
+            NthDraw(1_000),
+            NthDraw(10_000),
+            NthDraw(100_000),
+        ];
+
+        for spec in specs {
+            assert_eq!(
+                Ok(Lose),
+                calculate(spec, &_60_swamps)
+            );
+        }
+    }
 }
 
 type Deck = Box<[Card]>;
@@ -76,6 +114,7 @@ fn nth_ordered(
     // compute factorial numbers
     fact.push(1);
     for i in 1..len {
+        dbg!(i);
         fact.push(fact[i - 1] * i);
     }
     assert_eq!(fact.len(), len);
@@ -111,34 +150,30 @@ fn nth_ordered(
 }
 
 #[cfg(test)]
-mod tests {
+mod nth_ordered_works {
     use super::*;
 
-    mod nth_ordered_works {
-        use super::*;
+    const _0: Card = InsatiableAvarice;
+    const _1: Card = SchemingSymmetry;
+    const _2: Card = FeedTheSwarm;
 
-        const _0: Card = InsatiableAvarice;
-        const _1: Card = SchemingSymmetry;
-        const _2: Card = FeedTheSwarm;
+    #[test]
+    fn on_all_the_three_element_permutations() {
+        const decks: [[Card; 3]; 6] = [
+            [_0, _1, _2],
+            [_0, _2, _1],
+            [_1, _0, _2],
+            [_1, _2, _0],
+            [_2, _0, _1],
+            [_2, _1, _0],
+        ];
 
-        #[test]
-        fn on_all_the_three_element_permutations() {
-            const decks: [[Card; 3]; 6] = [
-                [_0, _1, _2],
-                [_0, _2, _1],
-                [_1, _0, _2],
-                [_1, _2, _0],
-                [_2, _0, _1],
-                [_2, _1, _0],
-            ];
-
-            for i in 0..decks.len() {
-                let actual = nth_ordered(&decks[0], i).expect("");
-                assert_eq!(*actual, decks[i], "mismatch at {i}");
-            }
-
-            let result = nth_ordered(&decks[0], decks.len());
-            assert_eq!(result, Err(PermutationNumberTooHigh), "Mismatch at one past the last valid permutation number");
+        for i in 0..decks.len() {
+            let actual = nth_ordered(&decks[0], i).expect("");
+            assert_eq!(*actual, decks[i], "mismatch at {i}");
         }
+
+        let result = nth_ordered(&decks[0], decks.len());
+        assert_eq!(result, Err(PermutationNumberTooHigh), "Mismatch at one past the last valid permutation number");
     }
 }
