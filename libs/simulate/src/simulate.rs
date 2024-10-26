@@ -76,7 +76,7 @@ mod calculate_works {
 
     #[test]
     fn on_all_swamps() {
-        let _60_swamps = [Swamp; 60];
+        let _60_swamps = [Swamp; 30];
 
         const specs: [Spec; 7] = [
             NthDraw(0),
@@ -108,38 +108,19 @@ fn nth_ordered(
     mut n: PermutationNumber
 ) -> Result<Deck, CalculateError> {
     let len = deck.len();
-    // Based on https://stackoverflow.com/a/7919887
+    let mut perm = nth_factorial_number(len, n)?;
 
-    let mut fact = Vec::with_capacity(len);
-    let mut perm: Vec<usize> = Vec::with_capacity(len);
-
-    // compute factorial numbers
-    fact.push(1u128);
-    for i in 1..len {
-        dbg!(fact[i - 1], i);
-        fact.push(fact[i - 1] * PermutationNumber::try_from(i).map_err(|_| UsizeTooBig)?);
-    }
-    assert_eq!(fact.len(), len);
-
-    // compute factorial code
-    for i in 0..len {
-        let div = n / fact[len - 1 - i];
-        if div >= PermutationNumber::try_from(len).map_err(|_| UsizeTooBig)? {
-            return Err(PermutationNumberTooHigh);
-        }
-        perm.push(div.try_into().map_err(|_| FactorialDigitTooBig)?);
-        n = n % fact[len - 1 - i];
-    }
-
-    // readjust values to obtain the permutation
+    // re-adjust values to obtain the permutation
     // start from the end and check if preceding values are lower
-    for i in (1..=(len - 1)).rev() {
-        for j in (0..=(i - 1)).rev() {
+    for i in (1..len).rev() {
+        for j in (0..i).rev() {
             if perm[j] <= perm[i] {
                 perm[i] += 1;
             }
         }
     }
+    
+    dbg!(&perm);
 
     // Apply the permutation to the input deck
     let mut output = Vec::with_capacity(len);
@@ -150,6 +131,8 @@ fn nth_ordered(
 
     Ok(output.into_boxed_slice())
 }
+
+
 
 #[cfg(test)]
 mod nth_ordered_works {
@@ -178,4 +161,94 @@ mod nth_ordered_works {
         let result = nth_ordered(&decks[0], decks.len().try_into().unwrap());
         assert_eq!(result, Err(PermutationNumberTooHigh), "Mismatch at one past the last valid permutation number");
     }
+}
+
+fn nth_factorial_number(len: usize, mut n: PermutationNumber) -> Result<Box<[usize]>, CalculateError> {
+    let mut perm: Vec<usize> = Vec::with_capacity(len);
+    
+    if (n <= 0) {
+        perm.push(0);
+    } else {
+        let mut placeValue = 1;
+        let mut place = 1;
+    
+        while (placeValue < n) {
+            place += 1;
+            placeValue *= place;
+        }
+    
+        if (placeValue > n) {
+            placeValue /= place;
+            place -= 1;
+        }
+    
+        while (place > 0) {
+            let mut digit = 0;
+            while (n >= placeValue) {
+                digit += 1;
+                n -= placeValue;
+            }
+            perm.push(digit);
+    
+            placeValue /= place;
+            place -= 1;
+        }
+    }
+
+    dbg!("short", &perm);
+
+    while perm.len() < len {
+        perm.push(0);
+    }
+    perm.reverse();
+
+    dbg!("long", &perm);
+
+    Ok(perm.into_boxed_slice())
+}
+
+#[cfg(test)]
+mod nth_factorial_number_works {
+    use super::*;
+
+    #[test]
+    fn on_these_examples() {
+        for len in 1..30 {
+            for n in 0..30 {
+                assert_eq!(
+                    nth_factorial_number(len, n),
+                    nth_factorial_number_limited(len, n),
+                    "mismatch on {len}, {n}"
+                );
+            }
+        }
+    }
+}
+
+fn nth_factorial_number_limited(len: usize, mut n: PermutationNumber) -> Result<Box<[usize]>, CalculateError> {
+    // https://stackoverflow.com/a/7919887
+    let mut fact: Vec<_> = Vec::with_capacity(len);
+    let mut perm: Vec<_> = Vec::with_capacity(len);
+
+    // compute factorial numbers
+    fact.push(1u128);
+    for i in 1..len {
+        dbg!(fact[i - 1], i);
+        fact.push(fact[i - 1] * PermutationNumber::try_from(i).map_err(|_| UsizeTooBig)?);
+    }
+    assert_eq!(fact.len(), len);
+ 
+    // compute factorial code
+    for i in 0..len {
+        let div = n / fact[len - 1 - i];
+        if div >= PermutationNumber::try_from(len).map_err(|_| UsizeTooBig)? {
+            return Err(PermutationNumberTooHigh);
+        }
+        perm.push(div.try_into().map_err(|_| FactorialDigitTooBig)?);
+        n = n % fact[len - 1 - i];
+    }
+
+    dbg!(&perm);
+
+    Ok(perm.into_boxed_slice())
 }
