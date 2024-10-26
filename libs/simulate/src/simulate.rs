@@ -1,7 +1,7 @@
 use card::Card::{self, *};
 use mana::ManaType::*;
 
-type PermutationNumber = usize;
+type PermutationNumber = u128;
 
 #[derive(Debug)]
 pub enum Spec {
@@ -21,6 +21,8 @@ use Outcome::*;
 pub enum CalculateError {
     DeckTooLarge,
     PermutationNumberTooHigh,
+    UsizeTooBig,
+    FactorialDigitTooBig,
 }
 use CalculateError::*;
 
@@ -109,23 +111,23 @@ fn nth_ordered(
     // Based on https://stackoverflow.com/a/7919887
 
     let mut fact = Vec::with_capacity(len);
-    let mut perm = Vec::with_capacity(len);
+    let mut perm: Vec<usize> = Vec::with_capacity(len);
 
     // compute factorial numbers
-    fact.push(1);
+    fact.push(1u128);
     for i in 1..len {
-        dbg!(i);
-        fact.push(fact[i - 1] * i);
+        dbg!(fact[i - 1], i);
+        fact.push(fact[i - 1] * PermutationNumber::try_from(i).map_err(|_| UsizeTooBig)?);
     }
     assert_eq!(fact.len(), len);
 
     // compute factorial code
     for i in 0..len {
         let div = n / fact[len - 1 - i];
-        if div >= len {
+        if div >= PermutationNumber::try_from(len).map_err(|_| UsizeTooBig)? {
             return Err(PermutationNumberTooHigh);
         }
-        perm.push(div);
+        perm.push(div.try_into().map_err(|_| FactorialDigitTooBig)?);
         n = n % fact[len - 1 - i];
     }
 
@@ -169,11 +171,11 @@ mod nth_ordered_works {
         ];
 
         for i in 0..decks.len() {
-            let actual = nth_ordered(&decks[0], i).expect("");
+            let actual = nth_ordered(&decks[0], i.try_into().unwrap()).expect("");
             assert_eq!(*actual, decks[i], "mismatch at {i}");
         }
 
-        let result = nth_ordered(&decks[0], decks.len());
+        let result = nth_ordered(&decks[0], decks.len().try_into().unwrap());
         assert_eq!(result, Err(PermutationNumberTooHigh), "Mismatch at one past the last valid permutation number");
     }
 }
