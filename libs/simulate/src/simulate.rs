@@ -18,7 +18,19 @@ pub enum Outcome {
 use Outcome::*;
 
 #[derive(Debug, PartialEq, Eq)]
+pub struct OutcomeAt {
+    outcome: Outcome,
+    at: TurnNumber,
+}
+
+// TODO non-empty vec
+pub type Outcomes = Vec<OutcomeAt>;
+
+pub type Hand = Vec<Card>;
+
+#[derive(Debug, PartialEq, Eq)]
 pub enum CalculateError {
+    DeckTooSmall,
     DeckTooLarge,
     PermutationNumberTooHigh,
     UsizeTooBig,
@@ -28,7 +40,7 @@ use CalculateError::*;
 
 const MAX_DECK_SIZE: u8 = 60;
 
-pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcome, CalculateError> {
+pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> {
     if deck.len() > MAX_DECK_SIZE as _ {
         return Err(DeckTooLarge);
     }
@@ -40,6 +52,8 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcome, CalculateError> {
     }?;
     dbg!(&ordered_deck);
 
+    let mut states = Vec::with_capacity(64);
+
     let mut hand = Vec::with_capacity(16);
 
     let mut deck = ordered_deck;
@@ -47,23 +61,93 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcome, CalculateError> {
     while hand.len() < 7 {
         match draw(deck) {
             None => {
-                return Ok(Lose);
+                return Err(DeckTooSmall);
             },
-            Some((d, card)) => {
+            Some((card, d)) => {
                 hand.push(card);
                 deck = d;
             }
         }
     }
 
-    while let Some((d, card)) = draw(deck) {
-        hand.push(card);
-        deck = d;
+    states.push(
+        State {
+            hand,
+            board: Board::default(),
+            deck,
+            turn_number: 0,
+        }
+    );
 
-        
+    let mut outcomes = Vec::with_capacity(64);
+
+    while let Some(state) = states.pop() {
+        let mut results = calculate_step(state);
+
+        for result in results.into_vec().into_iter() {
+            let result: Result<State, OutcomeAt> = result;
+            match result {
+                Ok(s) => {
+                    states.push(s);
+                }
+                Err(outcome) => {
+                    outcomes.push(outcome);
+                }
+            }
+        }
     }
 
-    return Ok(Lose);
+    return Ok(outcomes);
+}
+
+fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
+    state.turn_number += 1;
+
+    while let Some((card, d)) = draw(state.deck) {
+        state.hand.push(card);
+        state.deck = d;
+
+        todo!()
+
+        // We'll need to choose between different decisions here.
+        // Or we could try all of them!
+        /* Given a hand, deck and board, we can come up with a list of all the options.
+        Then each of the options will produce a new hand, deck and board, and thus another list of options
+        eventually we get to an empty list of options, for each case, leaving us with a list of possible future board states.
+        If any of them win, return that.
+        The ones that lose don't create further options.
+        The rest get to draw a card
+        Gotta track turn number too
+
+        So we should mkae this iterative I think, since combinatoric numbers are large enough we might want to paralellize
+        Call `(Hand, Board, Deck, Turn Number)` `State`.
+        We basically have State -> [Result<State, Outcome>]
+        
+        */
+        // 
+    }
+
+    Box::from([
+        Err(OutcomeAt {
+            outcome: Lose,
+            at: state.turn_number,
+        })
+    ])
+}
+
+/// 64k turns ought to be enough for anybody!
+type TurnNumber = u16;
+
+#[derive(Default)]
+struct Board {
+    // TODO
+}
+
+struct State {
+    hand: Hand,
+    board: Board,
+    deck: Deck,
+    turn_number: TurnNumber,
 }
 
 #[cfg(test)]
@@ -99,8 +183,8 @@ mod calculate_works {
 
 type Deck = Box<[Card]>;
 
-fn draw(deck: Deck) -> Option<(Deck, Card)> {
-    todo!();
+fn draw(deck: Deck) -> Option<(Card, Deck)> {
+    deck.split_first().map(|(c, d)| (c.clone(), d.into()))
 }
 
 fn nth_ordered(
@@ -172,19 +256,19 @@ fn nth_factorial_number(len: usize, mut n: PermutationNumber) -> Result<Box<[usi
         let mut placeValue = 1;
         let mut place = 1;
     
-        while (placeValue < n) {
+        while placeValue < n {
             place += 1;
             placeValue *= place;
         }
     
-        if (placeValue > n) {
+        if placeValue > n {
             placeValue /= place;
             place -= 1;
         }
     
-        while (place > 0) {
+        while place > 0 {
             let mut digit = 0;
-            while (n >= placeValue) {
+            while n >= placeValue {
                 digit += 1;
                 n -= placeValue;
             }
