@@ -122,9 +122,9 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
         So we should mkae this iterative I think, since combinatoric numbers are large enough we might want to paralellize
         Call `(Hand, Board, Deck, Turn Number)` `State`.
         We basically have State -> [Result<State, Outcome>]
-        
+
         */
-        // 
+        //
     }
 
     Box::from([
@@ -173,10 +173,16 @@ mod calculate_works {
         ];
 
         for spec in specs {
-            assert_eq!(
-                Ok(Lose),
-                calculate(spec, &_60_swamps)
-            );
+            let outcomes = calculate(spec, &_60_swamps).unwrap();
+
+            for outcome in outcomes {
+                assert!(
+                    matches!(
+                        outcome,
+                        OutcomeAt{ outcome: Lose, ..},
+                    ),
+                );
+            }
         }
     }
 }
@@ -194,22 +200,26 @@ fn nth_ordered(
     let len = deck.len();
     let mut perm = nth_factorial_number(len, n)?;
 
+    dbg!("preadjust", &perm);
+
     // re-adjust values to obtain the permutation
     // start from the end and check if preceding values are lower
     for i in (1..len).rev() {
         for j in (0..i).rev() {
             if perm[j] <= perm[i] {
+                dbg!(perm[j], perm[i]);
                 perm[i] += 1;
             }
         }
     }
-    
-    dbg!(&perm);
+
+    dbg!(&perm, len);
 
     // Apply the permutation to the input deck
     let mut output = Vec::with_capacity(len);
 
     for i in 0..len {
+        dbg!(i, perm[i]);
         output.push(deck[perm[i]])
     }
 
@@ -248,52 +258,85 @@ mod nth_ordered_works {
 }
 
 fn nth_factorial_number(len: usize, mut n: PermutationNumber) -> Result<Box<[usize]>, CalculateError> {
-    let mut perm: Vec<usize> = Vec::with_capacity(len);
-    
-    if (n <= 0) {
-        perm.push(0);
-    } else {
-        let mut placeValue = 1;
+    let mut num: Vec<usize> = Vec::with_capacity(len);
+
+    if (n > 0) {
+        let mut place_value = 1;
         let mut place = 1;
-    
-        while placeValue < n {
+
+        while place_value < n {
             place += 1;
-            placeValue *= place;
+            place_value *= place;
         }
-    
-        if placeValue > n {
-            placeValue /= place;
+
+        if place_value > n {
+            place_value /= place;
             place -= 1;
         }
-    
+
         while place > 0 {
             let mut digit = 0;
-            while n >= placeValue {
+            while n >= place_value {
                 digit += 1;
-                n -= placeValue;
+                n -= place_value;
             }
-            perm.push(digit);
-    
-            placeValue /= place;
+            num.push(digit);
+
+            place_value /= place;
             place -= 1;
         }
     }
 
-    dbg!("short", &perm);
+    // At this point we have just the non-zero digits.
 
-    while perm.len() < len {
-        perm.push(0);
+    // All factorial numbers end with 0
+    num.push(0);
+
+    while num.len() < len {
+        num.insert(0, 0);
     }
-    perm.reverse();
 
-    dbg!("long", &perm);
+    if num.len() > len {
+        return Err(PermutationNumberTooHigh)
+    }
 
-    Ok(perm.into_boxed_slice())
+    Ok(num.into_boxed_slice())
 }
 
 #[cfg(test)]
 mod nth_factorial_number_works {
     use super::*;
+
+    macro_rules! b {
+        ($e : expr) => ({
+            let slice: &[_] = $e;
+            Box::from(slice)
+        })
+    }
+
+    #[test]
+    fn on_these_explict_examples() {
+        let EXPECTEDS: [Box<[usize]>; 6] = [
+            b!(&[0, 0, 0]),
+            b!(&[0, 1, 0]),
+            b!(&[1, 0, 0]),
+            b!(&[1, 1, 0]),
+            b!(&[2, 0, 0]),
+            b!(&[2, 1, 0]),
+        ];
+
+        assert_eq!(
+            &[
+                nth_factorial_number(3, 0).unwrap(),
+                nth_factorial_number(3, 1).unwrap(),
+                nth_factorial_number(3, 2).unwrap(),
+                nth_factorial_number(3, 3).unwrap(),
+                nth_factorial_number(3, 4).unwrap(),
+                nth_factorial_number(3, 5).unwrap(),
+            ],
+            &EXPECTEDS,
+        );
+    }
 
     #[test]
     fn on_these_examples() {
@@ -307,32 +350,32 @@ mod nth_factorial_number_works {
             }
         }
     }
-}
 
-fn nth_factorial_number_limited(len: usize, mut n: PermutationNumber) -> Result<Box<[usize]>, CalculateError> {
-    // https://stackoverflow.com/a/7919887
-    let mut fact: Vec<_> = Vec::with_capacity(len);
-    let mut perm: Vec<_> = Vec::with_capacity(len);
+    fn nth_factorial_number_limited(len: usize, mut n: PermutationNumber) -> Result<Box<[usize]>, CalculateError> {
+        // https://stackoverflow.com/a/7919887
+        let mut fact: Vec<_> = Vec::with_capacity(len);
+        let mut perm: Vec<_> = Vec::with_capacity(len);
 
-    // compute factorial numbers
-    fact.push(1u128);
-    for i in 1..len {
-        dbg!(fact[i - 1], i);
-        fact.push(fact[i - 1] * PermutationNumber::try_from(i).map_err(|_| UsizeTooBig)?);
-    }
-    assert_eq!(fact.len(), len);
- 
-    // compute factorial code
-    for i in 0..len {
-        let div = n / fact[len - 1 - i];
-        if div >= PermutationNumber::try_from(len).map_err(|_| UsizeTooBig)? {
-            return Err(PermutationNumberTooHigh);
+        // compute factorial numbers
+        fact.push(1u128);
+        for i in 1..len {
+            dbg!(fact[i - 1], i);
+            fact.push(fact[i - 1] * PermutationNumber::try_from(i).map_err(|_| UsizeTooBig)?);
         }
-        perm.push(div.try_into().map_err(|_| FactorialDigitTooBig)?);
-        n = n % fact[len - 1 - i];
+        assert_eq!(fact.len(), len);
+
+        // compute factorial code
+        for i in 0..len {
+            let div = n / fact[len - 1 - i];
+            if div >= PermutationNumber::try_from(len).map_err(|_| UsizeTooBig)? {
+                return Err(PermutationNumberTooHigh);
+            }
+            perm.push(div.try_into().map_err(|_| FactorialDigitTooBig)?);
+            n = n % fact[len - 1 - i];
+        }
+
+        dbg!(&perm);
+
+        Ok(perm.into_boxed_slice())
     }
-
-    dbg!(&perm);
-
-    Ok(perm.into_boxed_slice())
 }
