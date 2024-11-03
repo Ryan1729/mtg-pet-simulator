@@ -31,3 +31,9 @@ pub enum Card {
     BlastZone,
     SceneOfTheCrime,
 }
+
+impl Card {
+    pub fn is_land(self) -> bool {
+        todo!("is_land")
+    }
+}

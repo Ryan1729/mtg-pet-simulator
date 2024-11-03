@@ -77,6 +77,7 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
             deck,
             turn_number: 0,
             step: Step::default(),
+            land_plays: INITIAL_LAND_PLAYS,
         }
     );
 
@@ -126,14 +127,75 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
             }
         },
         MainPhase1 => {
+            if state.land_plays > 0 {
+                let mut land_indexes = Vec::with_capacity(state.hand.len());
+                for (i, card) in state.hand.iter().enumerate() {
+                    if card.is_land() {
+                        land_indexes.push(i);
+                    }
+                }
+    
+                // TODO? Is it ever worth doing to not play a land if you can?
+                match land_indexes.len() {
+                    0 => {},
+                    1 => {
+                        let card = state.hand.remove(land_indexes[0]);
+                        state.board.lands.push(card);
+                        state.land_plays -= 1;
+
+                        one_path_forward!()
+                    }
+                    _ => {
+                        let output = Vec::with_capacity(land_indexes.len());
+
+                        for i in land_indexes.into_iter().rev() {
+                            let (d, card) = todo!();//remove(&state.hand, i).expect("land index to be valid");
+
+                            output.push(Ok(State {
+                                deck: d,
+                                board: Board {
+                                    lands: push(&state.board.lands, card),
+                                    ..state.board
+                                },
+                                land_plays: state.land_plays - 1,
+                                ..state
+                            }));
+                        }
+
+                        return Box::from(output);
+                    }
+                }
+            }
+
             todo!("decide what to play");
         }
         End => {
             state.turn_number += 1;
             state.step = Step::default();
+            state.land_plays = INITIAL_LAND_PLAYS;
             one_path_forward!()
         }
     }
+}
+
+fn remove<A: Clone>(slice: &[A], index: usize) -> Option<(Box<[A]>, A)> {
+    if let Some(element) = slice.get(index).cloned() {
+        let mut output = Vec::with_capacity(slice.len() - 1);
+
+        for (i, e) in slice.iter().enumerate() {
+            if i == index { continue }
+
+            output.push(e.clone());
+        }
+
+        Some((output.into(), element))
+    } else {
+        None
+    }
+}
+
+fn push<A>(slice: &[A], element: A) -> Vec<A> {
+    todo!()
 }
 
 /// 64k turns ought to be enough for anybody!
@@ -141,7 +203,7 @@ type TurnNumber = u16;
 
 #[derive(Default)]
 struct Board {
-    // TODO
+    lands: Vec<Card>,
 }
 
 #[derive(Copy, Clone, Default)]
@@ -157,10 +219,15 @@ enum Step {
 }
 use Step::*;
 
+type LandPlays = u8;
+
+const INITIAL_LAND_PLAYS: LandPlays = 1;
+
 struct State {
     hand: Hand,
     board: Board,
     deck: Deck,
+    land_plays: LandPlays,
     step: Step,
     turn_number: TurnNumber,
 }
