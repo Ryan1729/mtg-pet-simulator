@@ -76,6 +76,7 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
             board: Board::default(),
             deck,
             turn_number: 0,
+            step: Step::default(),
         }
     );
 
@@ -101,38 +102,38 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
 }
 
 fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
-    state.turn_number += 1;
-
-    while let Some((card, d)) = draw(state.deck) {
-        state.hand.push(card);
-        state.deck = d;
-
-        todo!()
-
-        // We'll need to choose between different decisions here.
-        // Or we could try all of them!
-        /* Given a hand, deck and board, we can come up with a list of all the options.
-        Then each of the options will produce a new hand, deck and board, and thus another list of options
-        eventually we get to an empty list of options, for each case, leaving us with a list of possible future board states.
-        If any of them win, return that.
-        The ones that lose don't create further options.
-        The rest get to draw a card
-        Gotta track turn number too
-
-        So we should mkae this iterative I think, since combinatoric numbers are large enough we might want to paralellize
-        Call `(Hand, Board, Deck, Turn Number)` `State`.
-        We basically have State -> [Result<State, Outcome>]
-
-        */
-        //
+    macro_rules! one_path_forward {
+        () => {
+            return Box::from([Ok(state)]);
+        }
     }
 
-    Box::from([
-        Err(OutcomeAt {
-            outcome: Lose,
-            at: state.turn_number,
-        })
-    ])
+    match state.step {
+        Draw => {
+            if let Some((card, d)) = draw(state.deck) {
+                state.deck = d;
+                state.hand.push(card);
+                state.step = MainPhase1;
+
+                one_path_forward!()
+            } else {
+                return Box::from([
+                    Err(OutcomeAt {
+                        outcome: Lose,
+                        at: state.turn_number,
+                    })
+                ]);
+            }
+        },
+        MainPhase1 => {
+            todo!("decide what to play");
+        }
+        End => {
+            state.turn_number += 1;
+            state.step = Step::default();
+            one_path_forward!()
+        }
+    }
 }
 
 /// 64k turns ought to be enough for anybody!
@@ -143,10 +144,24 @@ struct Board {
     // TODO
 }
 
+#[derive(Copy, Clone, Default)]
+enum Step {
+    #[default]
+    //Untap,
+    //Upkeep,
+    Draw,
+    MainPhase1,
+    //Combat, // TODO? Split this up if needed
+    //MainPhase2,
+    End,
+}
+use Step::*;
+
 struct State {
     hand: Hand,
     board: Board,
     deck: Deck,
+    step: Step,
     turn_number: TurnNumber,
 }
 
