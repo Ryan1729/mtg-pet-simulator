@@ -84,8 +84,9 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
     let mut outcomes = Vec::with_capacity(64);
 
     while let Some(state) = states.pop() {
+        dbg!(states.len());
         let mut results = calculate_step(state);
-
+        dbg!(&results);
         for result in results.into_vec().into_iter() {
             let result: Result<State, OutcomeAt> = result;
             match result {
@@ -111,13 +112,16 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
 
     match state.step {
         Draw => {
+            dbg!("in", state.deck.len());
             if let Some((card, d)) = draw(state.deck) {
                 state.deck = d;
+                dbg!("out if", state.deck.len());
                 state.hand.push(card);
                 state.step = MainPhase1;
 
                 one_path_forward!()
             } else {
+                dbg!("else");
                 return Box::from([
                     Err(OutcomeAt {
                         outcome: Lose,
@@ -129,6 +133,7 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
         MainPhase1 => {
             if state.land_plays > 0 {
                 let mut land_indexes = Vec::with_capacity(state.hand.len());
+                // TODO skip functionally duplicate cases like playing different copies of the same basic land
                 for (i, card) in state.hand.iter().enumerate() {
                     if card.is_land() {
                         land_indexes.push(i);
@@ -146,19 +151,19 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
                         one_path_forward!()
                     }
                     _ => {
-                        let output = Vec::with_capacity(land_indexes.len());
+                        let mut output = Vec::with_capacity(land_indexes.len());
 
                         for i in land_indexes.into_iter().rev() {
-                            let (d, card) = todo!();//remove(&state.hand, i).expect("land index to be valid");
+                            let (h, card) = remove(&state.hand, i).expect("land index to be valid");
 
                             output.push(Ok(State {
-                                deck: d,
+                                hand: h.to_vec(),
                                 board: Board {
                                     lands: push(&state.board.lands, card),
-                                    ..state.board
+                                    ..state.board.clone()
                                 },
                                 land_plays: state.land_plays - 1,
-                                ..state
+                                ..state.clone()
                             }));
                         }
 
@@ -167,7 +172,13 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
                 }
             }
 
-            todo!("decide what to play");
+            let mut output = Vec::with_capacity(state.hand.len());
+
+            // TODO add more possible plays when there are any
+
+            state.step = End;
+            output.push(Ok(state));
+            return Box::from(output);
         }
         End => {
             state.turn_number += 1;
@@ -178,6 +189,8 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
     }
 }
 
+// TODO consider making Deck into an opaque type that we will be easily able to replace with a fast(er) 
+// immutable library type later on
 fn remove<A: Clone>(slice: &[A], index: usize) -> Option<(Box<[A]>, A)> {
     if let Some(element) = slice.get(index).cloned() {
         let mut output = Vec::with_capacity(slice.len() - 1);
@@ -194,19 +207,26 @@ fn remove<A: Clone>(slice: &[A], index: usize) -> Option<(Box<[A]>, A)> {
     }
 }
 
-fn push<A>(slice: &[A], element: A) -> Vec<A> {
-    todo!()
+fn push<A: Clone>(slice: &[A], element: A) -> Vec<A> {
+    let mut output = Vec::with_capacity(slice.len() + 1);
+
+    for e in slice.iter() {
+        output.push(e.clone());
+    }
+    output.push(element);
+
+    output
 }
 
 /// 64k turns ought to be enough for anybody!
 type TurnNumber = u16;
 
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 struct Board {
     lands: Vec<Card>,
 }
 
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Debug, Default)]
 enum Step {
     #[default]
     //Untap,
@@ -223,6 +243,7 @@ type LandPlays = u8;
 
 const INITIAL_LAND_PLAYS: LandPlays = 1;
 
+#[derive(Clone, Debug)]
 struct State {
     hand: Hand,
     board: Board,
@@ -241,8 +262,18 @@ mod calculate_works {
     const _2: Card = FeedTheSwarm;
 
     #[test]
+    fn on_empty_deck() {
+        assert!(
+            matches!(
+                calculate(NthDraw(0), &[]),
+                Err(_),
+            )
+        );
+    }
+
+    #[test]
     fn on_all_swamps() {
-        let _60_swamps = [Swamp; 30];
+        let _60_swamps = [Swamp; 60];
 
         const specs: [Spec; 7] = [
             NthDraw(0),
@@ -255,6 +286,7 @@ mod calculate_works {
         ];
 
         for spec in specs {
+            dbg!(&spec);
             let outcomes = calculate(spec, &_60_swamps).unwrap();
 
             for outcome in outcomes {
@@ -282,26 +314,21 @@ fn nth_ordered(
     let len = deck.len();
     let mut perm = nth_factorial_number(len, n)?;
 
-    dbg!("preadjust", &perm);
-
     // re-adjust values to obtain the permutation
     // start from the end and check if preceding values are lower
     for i in (1..len).rev() {
         for j in (0..i).rev() {
             if perm[j] <= perm[i] {
-                dbg!(perm[j], perm[i]);
                 perm[i] += 1;
             }
         }
     }
 
-    dbg!(&perm, len);
 
     // Apply the permutation to the input deck
     let mut output = Vec::with_capacity(len);
 
     for i in 0..len {
-        dbg!(i, perm[i]);
         output.push(deck[perm[i]])
     }
 
