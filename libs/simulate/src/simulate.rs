@@ -1,6 +1,8 @@
 use card::Card::{self, *};
 use mana::ManaType::*;
 
+use::std::collections::HashSet;
+
 type PermutationNumber = u128;
 
 #[derive(Debug)]
@@ -106,7 +108,7 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
 fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
     macro_rules! one_path_forward {
         () => {
-            return Box::from([Ok(state)]);
+            return Box::from([Ok(state)])
         }
     }
 
@@ -132,11 +134,13 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
         },
         MainPhase1 => {
             if state.land_plays > 0 {
+                let mut seen_land = HashSet::with_capacity(state.hand.len());
                 let mut land_indexes = Vec::with_capacity(state.hand.len());
-                // TODO skip functionally duplicate cases like playing different copies of the same basic land
+
                 for (i, card) in state.hand.iter().enumerate() {
-                    if card.is_land() {
+                    if card.is_land() && !seen_land.contains(card) {
                         land_indexes.push(i);
+                        seen_land.insert(card);
                     }
                 }
     
@@ -272,7 +276,34 @@ mod calculate_works {
     }
 
     #[test]
-    fn on_all_swamps() {
+    fn on_8_swamps() {
+        let _8_swamps = [Swamp; 8];
+
+        const specs: [Spec; 5] = [
+            NthDraw(0),
+            NthDraw(1),
+            NthDraw(10),
+            NthDraw(100),
+            NthDraw(1_000),
+        ];
+
+        for spec in specs {
+            dbg!(&spec);
+            let outcomes = calculate(spec, &_8_swamps).unwrap();
+
+            for outcome in outcomes {
+                assert!(
+                    matches!(
+                        outcome,
+                        OutcomeAt{ outcome: Lose, ..},
+                    ),
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn on_60_swamps() {
         let _60_swamps = [Swamp; 60];
 
         const specs: [Spec; 7] = [
@@ -369,7 +400,7 @@ mod nth_ordered_works {
 fn nth_factorial_number(len: usize, mut n: PermutationNumber) -> Result<Box<[usize]>, CalculateError> {
     let mut num: Vec<usize> = Vec::with_capacity(len);
 
-    if (n > 0) {
+    if n > 0 {
         let mut place_value = 1;
         let mut place = 1;
 
