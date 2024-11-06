@@ -1,0 +1,2 @@
+
+cargo tarpaulin --workspace --offline --engine llvm --include-tests --line --fail-immediately --fail-under 100 "$@"

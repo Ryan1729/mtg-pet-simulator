@@ -114,16 +114,13 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
 
     match state.step {
         Draw => {
-            dbg!("in", state.deck.len());
             if let Some((card, d)) = draw(state.deck) {
                 state.deck = d;
-                dbg!("out if", state.deck.len());
                 state.hand.push(card);
                 state.step = MainPhase1;
 
                 one_path_forward!()
             } else {
-                dbg!("else");
                 return Box::from([
                     Err(OutcomeAt {
                         outcome: Lose,
@@ -288,7 +285,6 @@ mod calculate_works {
         ];
 
         for spec in specs {
-            dbg!(&spec);
             let outcomes = calculate(spec, &_8_swamps).unwrap();
 
             for outcome in outcomes {
@@ -317,7 +313,6 @@ mod calculate_works {
         ];
 
         for spec in specs {
-            dbg!(&spec);
             let outcomes = calculate(spec, &_60_swamps).unwrap();
 
             for outcome in outcomes {

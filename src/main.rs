@@ -1,6 +1,7 @@
 use card::Card::*;
 use simulate::Spec::*;
 
+#[cfg(not(tarpaulin_include))]
 fn main() {
     // TODO accept as input
     let deck = vec![
