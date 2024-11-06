@@ -477,11 +477,10 @@ mod nth_factorial_number_works {
     fn on_these_examples() {
         for len in 1..30 {
             for n in 0..30 {
-                assert_eq!(
-                    nth_factorial_number(len, n),
-                    nth_factorial_number_limited(len, n),
-                    "mismatch on {len}, {n}"
-                );
+                let actual = nth_factorial_number(len, n);
+                let expected = nth_factorial_number_limited(len, n);
+
+                assert_eq!(actual, expected, "mismatch on {len}, {n}");
             }
         }
     }

@@ -1,2 +1,4 @@
 
-cargo tarpaulin --workspace --offline --engine llvm --include-tests --line --fail-immediately --fail-under 100 "$@"
+RUST_LOG=ERROR cargo tarpaulin \
+--workspace --offline --engine llvm --include-tests --fail-immediately --fail-under 100 "$@" \
+| rg --no-line-number -v '(.*cargo_tarpaulin::statemachine.*)|(.*cargo_tarpaulin::process_handling.*Setting LLVM_PROFILE_FILE.*)'
