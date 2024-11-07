@@ -364,6 +364,32 @@ fn nth_ordered(
 
 
 #[cfg(test)]
+mod test_coverage_utils {
+    #[cfg(not(tarpaulin_include))]
+    pub fn uncovered_assert_eq<A: PartialEq<A> + core::fmt::Debug>(
+        actual: A,
+        expected: A,
+        func: impl FnOnce() -> String,
+    ) {
+        assert_eq!(actual, expected, "{}", func());
+    }
+
+    #[macro_export]
+    macro_rules! _a_eq {
+        ($left:expr, $right:expr $(,)?) => {
+            uncovered_assert_eq($left, $right, || { format!() })
+        };
+        ($left:expr, $right:expr, $($arg:tt)+) => {
+            uncovered_assert_eq($left, $right, || { format!($($arg)+)} )
+        };
+    }
+    pub use _a_eq as a_eq;
+}
+#[cfg(test)]
+use test_coverage_utils::*;
+
+
+#[cfg(test)]
 mod nth_ordered_works {
     use super::*;
 
@@ -480,7 +506,7 @@ mod nth_factorial_number_works {
                 let actual = nth_factorial_number(len, n);
                 let expected = nth_factorial_number_limited(len, n);
 
-                assert_eq!(actual, expected, "mismatch on {len}, {n}");
+                a_eq!(actual, expected, "mismatch on {len}, {n}");
             }
         }
     }
