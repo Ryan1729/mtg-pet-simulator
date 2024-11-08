@@ -255,6 +255,31 @@ struct State {
 }
 
 #[cfg(test)]
+mod test_coverage_utils {
+    #[cfg(not(tarpaulin_include))]
+    pub fn uncovered_assert_eq<A: PartialEq<A> + core::fmt::Debug>(
+        actual: A,
+        expected: A,
+        func: impl FnOnce() -> String,
+    ) {
+        assert_eq!(actual, expected, "{}", func());
+    }
+
+    #[macro_export]
+    macro_rules! _a_eq {
+        ($left:expr, $right:expr $(,)?) => {
+            uncovered_assert_eq($left, $right, || { format!() })
+        };
+        ($left:expr, $right:expr, $($arg:tt)+) => {
+            uncovered_assert_eq($left, $right, || { format!($($arg)+)} )
+        };
+    }
+    pub use _a_eq as a_eq;
+}
+#[cfg(test)]
+use test_coverage_utils::*;
+
+#[cfg(test)]
 mod calculate_works {
     use super::*;
 
@@ -265,10 +290,7 @@ mod calculate_works {
     #[test]
     fn on_empty_deck() {
         assert!(
-            matches!(
-                calculate(NthDraw(0), &[]),
-                Err(_),
-            )
+            matches!(calculate(NthDraw(0), &[]), Err(_),)
         );
     }
 
@@ -288,12 +310,9 @@ mod calculate_works {
             let outcomes = calculate(spec, &_8_swamps).unwrap();
 
             for outcome in outcomes {
-                assert!(
-                    matches!(
-                        outcome,
-                        OutcomeAt{ outcome: Lose, ..},
-                    ),
-                );
+                let does_match = matches!(outcome, OutcomeAt{ outcome: Lose, ..});
+
+                assert!(does_match);
             }
         }
     }
@@ -316,11 +335,13 @@ mod calculate_works {
             let outcomes = calculate(spec, &_60_swamps).unwrap();
 
             for outcome in outcomes {
+                let does_match = matches!(
+                    outcome,
+                    OutcomeAt{ outcome: Lose, ..},
+                );
+
                 assert!(
-                    matches!(
-                        outcome,
-                        OutcomeAt{ outcome: Lose, ..},
-                    ),
+                    does_match,
                 );
             }
         }
@@ -360,34 +381,6 @@ fn nth_ordered(
 
     Ok(output.into_boxed_slice())
 }
-
-
-
-#[cfg(test)]
-mod test_coverage_utils {
-    #[cfg(not(tarpaulin_include))]
-    pub fn uncovered_assert_eq<A: PartialEq<A> + core::fmt::Debug>(
-        actual: A,
-        expected: A,
-        func: impl FnOnce() -> String,
-    ) {
-        assert_eq!(actual, expected, "{}", func());
-    }
-
-    #[macro_export]
-    macro_rules! _a_eq {
-        ($left:expr, $right:expr $(,)?) => {
-            uncovered_assert_eq($left, $right, || { format!() })
-        };
-        ($left:expr, $right:expr, $($arg:tt)+) => {
-            uncovered_assert_eq($left, $right, || { format!($($arg)+)} )
-        };
-    }
-    pub use _a_eq as a_eq;
-}
-#[cfg(test)]
-use test_coverage_utils::*;
-
 
 #[cfg(test)]
 mod nth_ordered_works {
