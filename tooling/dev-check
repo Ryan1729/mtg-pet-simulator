@@ -1,1 +1,1 @@
-cargo b -r && cargo t --all && cargo r -r
+cargo b -r && cargo t --all -- --nocapture && cargo r -r

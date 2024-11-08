@@ -192,7 +192,7 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
 
 // TODO consider making Deck into an opaque type that we will be easily able to replace with a fast(er) 
 // immutable library type later on
-fn remove<A: Clone>(slice: &[A], index: usize) -> Option<(Box<[A]>, A)> {
+fn remove(slice: &[Card], index: usize) -> Option<(Box<[Card]>, Card)> {
     if let Some(element) = slice.get(index).cloned() {
         let mut output = Vec::with_capacity(slice.len() - 1);
 
@@ -205,6 +205,20 @@ fn remove<A: Clone>(slice: &[A], index: usize) -> Option<(Box<[A]>, A)> {
         Some((output.into(), element))
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod remove_works {
+    use super::*;
+
+    #[test]
+    fn on_these_examples() {
+        let empty = &[];
+        a_eq!(remove(empty, 0), None);
+        a_eq!(remove(&[Swamp], 0), Some((Box::from([]), Swamp)));
+        a_eq!(remove(&[InsatiableAvarice, Swamp], 0), Some((Box::from([Swamp]), InsatiableAvarice)));
+        a_eq!(remove(&[InsatiableAvarice, Swamp], 1), Some((Box::from([InsatiableAvarice]), Swamp)));
     }
 }
 
@@ -268,7 +282,7 @@ mod test_coverage_utils {
     #[macro_export]
     macro_rules! _a_eq {
         ($left:expr, $right:expr $(,)?) => {
-            uncovered_assert_eq($left, $right, || { format!() })
+            uncovered_assert_eq($left, $right, || { format!("") })
         };
         ($left:expr, $right:expr, $($arg:tt)+) => {
             uncovered_assert_eq($left, $right, || { format!($($arg)+)} )
@@ -343,6 +357,70 @@ mod calculate_works {
                 assert!(
                     does_match,
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn on_8_non_lands() {
+        let _8_non_lands = [
+            InsatiableAvarice,
+            InsatiableAvarice,
+            InsatiableAvarice,
+            InsatiableAvarice,
+            SchemingSymmetry,
+            SchemingSymmetry,
+            SchemingSymmetry,
+            SchemingSymmetry,
+        ];
+
+        const specs: [Spec; 5] = [
+            NthDraw(0),
+            NthDraw(1),
+            NthDraw(10),
+            NthDraw(100),
+            NthDraw(1_000),
+        ];
+
+        for spec in specs {
+            let outcomes = calculate(spec, &_8_non_lands).unwrap();
+
+            for outcome in outcomes {
+                let does_match = matches!(outcome, OutcomeAt{ outcome: Lose, ..});
+
+                assert!(does_match);
+            }
+        }
+    }
+
+    #[test]
+    fn on_8_swamps_and_non_basic_lands() {
+        let _8_swamps_and_non_basic_lands = [
+            MemorialToFolly,
+            PhyrexianTower,
+            TheDrossPits,
+            BlastZone,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+        ];
+
+        const specs: [Spec; 5] = [
+            NthDraw(0),
+            NthDraw(1),
+            NthDraw(10),
+            NthDraw(100),
+            NthDraw(1_000),
+        ];
+
+        for spec in specs {
+            let outcomes = calculate(spec, &_8_swamps_and_non_basic_lands).unwrap();
+
+            for outcome in outcomes {
+                let does_match = matches!(outcome, OutcomeAt{ outcome: Lose, ..});
+
+                assert!(does_match);
             }
         }
     }
