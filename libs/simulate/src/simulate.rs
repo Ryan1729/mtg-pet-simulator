@@ -5,12 +5,31 @@ use::std::collections::HashSet;
 
 type PermutationNumber = u128;
 
-#[derive(Debug)]
-pub enum Spec {
+#[derive(Clone, Copy, Debug)]
+pub enum DrawSpec {
     //AllDraws,
     NthDraw(PermutationNumber),
 }
-use Spec::*;
+use DrawSpec::*;
+
+#[derive(Clone, Copy, Debug)]
+pub enum PetSpec {
+    Goldfish,
+}
+use PetSpec::*;
+
+impl PetSpec {
+    #[cfg(test)]
+    const ALL: [PetSpec; 1] = [
+        Goldfish,
+    ];
+}
+
+#[derive(Debug)]
+pub struct Spec {
+    pub draw: DrawSpec,
+    pub pet: PetSpec,
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Outcome {
@@ -47,7 +66,7 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
         return Err(DeckTooLarge);
     }
 
-    let ordered_deck = match spec {
+    let ordered_deck = match spec.draw {
         NthDraw(n) => {
             nth_ordered(deck, n)
         }
@@ -83,26 +102,29 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
         }
     );
 
-    let mut outcomes = Vec::with_capacity(64);
+    match spec.pet {
+        Goldfish => {
+            let mut outcomes = Vec::with_capacity(64);
 
-    while let Some(state) = states.pop() {
-        dbg!(states.len());
-        let mut results = calculate_step(state);
-        dbg!(&results);
-        for result in results.into_vec().into_iter() {
-            let result: Result<State, OutcomeAt> = result;
-            match result {
-                Ok(s) => {
-                    states.push(s);
-                }
-                Err(outcome) => {
-                    outcomes.push(outcome);
+            while let Some(state) = states.pop() {
+                let results = calculate_step(state);
+
+                for result in results.into_vec().into_iter() {
+                    let result: Result<State, OutcomeAt> = result;
+                    match result {
+                        Ok(s) => {
+                            states.push(s);
+                        }
+                        Err(outcome) => {
+                            outcomes.push(outcome);
+                        }
+                    }
                 }
             }
+
+            return Ok(outcomes);
         }
     }
-
-    return Ok(outcomes);
 }
 
 fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
@@ -140,7 +162,7 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
                         seen_land.insert(card);
                     }
                 }
-    
+
                 // TODO? Is it ever worth doing to not play a land if you can?
                 match land_indexes.len() {
                     0 => {},
@@ -190,7 +212,7 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
     }
 }
 
-// TODO consider making Deck into an opaque type that we will be easily able to replace with a fast(er) 
+// TODO consider making Deck into an opaque type that we will be easily able to replace with a fast(er)
 // immutable library type later on
 fn remove(slice: &[Card], index: usize) -> Option<(Box<[Card]>, Card)> {
     if let Some(element) = slice.get(index).cloned() {
@@ -315,30 +337,33 @@ mod calculate_works {
 
     #[test]
     fn on_empty_deck() {
-        assert!(
-            matches!(calculate(NthDraw(0), &[]), Err(_),)
-        );
+        for pet in PetSpec::ALL {
+            let spec = Spec { draw: NthDraw(0), pet };
+            assert!(calculate(spec, &[]).is_err());
+        }
     }
 
     #[test]
     fn on_too_small_but_non_empty_deck() {
-        assert!(
-            matches!(calculate(NthDraw(0), &[Swamp; 1]), Err(_),)
-        );
+        for pet in PetSpec::ALL {
+            let spec = Spec { draw: NthDraw(0), pet };
+            assert!(calculate(spec, &[Swamp; 1]).is_err());
+        }
     }
 
     #[test]
     fn on_too_large_deck() {
-        assert!(
-            matches!(calculate(NthDraw(0), &[Swamp; MAX_DECK_SIZE as usize + 1]), Err(_),)
-        );
+        for pet in PetSpec::ALL {
+            let spec = Spec { draw: NthDraw(0), pet };
+            assert!(calculate(spec, &[Swamp; MAX_DECK_SIZE as usize + 1]).is_err());
+        }
     }
 
     #[test]
     fn on_8_swamps() {
         let _8_swamps = [Swamp; 8];
 
-        const specs: [Spec; 5] = [
+        const draw_specs: [DrawSpec; 5] = [
             NthDraw(0),
             NthDraw(1),
             NthDraw(10),
@@ -346,13 +371,15 @@ mod calculate_works {
             NthDraw(1_000),
         ];
 
-        for spec in specs {
-            let outcomes = calculate(spec, &_8_swamps).unwrap();
+        for draw in draw_specs {
+            for pet in PetSpec::ALL {
+                let outcomes = calculate(Spec { draw, pet }, &_8_swamps).unwrap();
 
-            for outcome in outcomes {
-                let does_match = matches!(outcome, OutcomeAt{ outcome: Lose, ..});
+                for outcome in outcomes {
+                    let does_match = matches!(outcome, OutcomeAt{ outcome: Lose, ..});
 
-                assert!(does_match);
+                    assert!(does_match);
+                }
             }
         }
     }
@@ -361,7 +388,7 @@ mod calculate_works {
     fn on_60_swamps() {
         let _60_swamps = [Swamp; 60];
 
-        const specs: [Spec; 7] = [
+        const draw_specs: [DrawSpec; 7] = [
             NthDraw(0),
             NthDraw(1),
             NthDraw(10),
@@ -371,18 +398,20 @@ mod calculate_works {
             NthDraw(100_000),
         ];
 
-        for spec in specs {
-            let outcomes = calculate(spec, &_60_swamps).unwrap();
+        for draw in draw_specs {
+            for pet in PetSpec::ALL {
+                let outcomes = calculate(Spec { draw, pet }, &_60_swamps).unwrap();
 
-            for outcome in outcomes {
-                let does_match = matches!(
-                    outcome,
-                    OutcomeAt{ outcome: Lose, ..},
-                );
+                for outcome in outcomes {
+                    let does_match = matches!(
+                        outcome,
+                        OutcomeAt{ outcome: Lose, ..},
+                    );
 
-                assert!(
-                    does_match,
-                );
+                    assert!(
+                        does_match,
+                    );
+                }
             }
         }
     }
@@ -400,7 +429,7 @@ mod calculate_works {
             SchemingSymmetry,
         ];
 
-        const specs: [Spec; 5] = [
+        const draw_specs: [DrawSpec; 5] = [
             NthDraw(0),
             NthDraw(1),
             NthDraw(10),
@@ -408,13 +437,15 @@ mod calculate_works {
             NthDraw(1_000),
         ];
 
-        for spec in specs {
-            let outcomes = calculate(spec, &_8_non_lands).unwrap();
+        for draw in draw_specs {
+            for pet in PetSpec::ALL {
+                let outcomes = calculate(Spec { draw, pet }, &_8_non_lands).unwrap();
 
-            for outcome in outcomes {
-                let does_match = matches!(outcome, OutcomeAt{ outcome: Lose, ..});
+                for outcome in outcomes {
+                    let does_match = matches!(outcome, OutcomeAt{ outcome: Lose, ..});
 
-                assert!(does_match);
+                    assert!(does_match);
+                }
             }
         }
     }
@@ -432,7 +463,7 @@ mod calculate_works {
             Swamp,
         ];
 
-        const specs: [Spec; 5] = [
+        const draw_specs: [DrawSpec; 5] = [
             NthDraw(0),
             NthDraw(1),
             NthDraw(10),
@@ -440,13 +471,15 @@ mod calculate_works {
             NthDraw(1_000),
         ];
 
-        for spec in specs {
-            let outcomes = calculate(spec, &_8_swamps_and_non_basic_lands).unwrap();
+        for draw in draw_specs {
+            for pet in PetSpec::ALL {
+                let outcomes = calculate(Spec{ draw, pet }, &_8_swamps_and_non_basic_lands).unwrap();
 
-            for outcome in outcomes {
-                let does_match = matches!(outcome, OutcomeAt{ outcome: Lose, ..});
+                for outcome in outcomes {
+                    let does_match = matches!(outcome, OutcomeAt{ outcome: Lose, ..});
 
-                assert!(does_match);
+                    assert!(does_match);
+                }
             }
         }
     }

@@ -1,5 +1,5 @@
 use card::Card::*;
-use simulate::Spec::*;
+use simulate::{DrawSpec::*, PetSpec::*, Spec};
 
 #[cfg(not(tarpaulin_include))]
 fn main() {
@@ -69,7 +69,7 @@ fn main() {
 
     assert_eq!(deck.len(), 60);
 
-    let outcome = simulate::calculate(NthDraw(0), &deck);
+    let outcome = simulate::calculate(Spec{ draw: NthDraw(0), pet: Goldfish }, &deck);
 
     println!("{outcome:?}");
 }
