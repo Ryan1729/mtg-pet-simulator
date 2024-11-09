@@ -222,7 +222,7 @@ mod remove_works {
     }
 }
 
-fn push<A: Clone>(slice: &[A], element: A) -> Vec<A> {
+fn push(slice: &[Card], element: Card) -> Vec<Card> {
     let mut output = Vec::with_capacity(slice.len() + 1);
 
     for e in slice.iter() {
@@ -231,6 +231,18 @@ fn push<A: Clone>(slice: &[A], element: A) -> Vec<A> {
     output.push(element);
 
     output
+}
+
+#[cfg(test)]
+mod push_works {
+    use super::*;
+
+    #[test]
+    fn on_these_examples() {
+        let empty = &[];
+        a_eq!(push(empty, Swamp), vec![Swamp]);
+        a_eq!(push(&[Swamp], Swamp), vec![Swamp, Swamp]);
+    }
 }
 
 /// 64k turns ought to be enough for anybody!
@@ -305,6 +317,20 @@ mod calculate_works {
     fn on_empty_deck() {
         assert!(
             matches!(calculate(NthDraw(0), &[]), Err(_),)
+        );
+    }
+
+    #[test]
+    fn on_too_small_but_non_empty_deck() {
+        assert!(
+            matches!(calculate(NthDraw(0), &[Swamp; 1]), Err(_),)
+        );
+    }
+
+    #[test]
+    fn on_too_large_deck() {
+        assert!(
+            matches!(calculate(NthDraw(0), &[Swamp; MAX_DECK_SIZE as usize + 1]), Err(_),)
         );
     }
 
