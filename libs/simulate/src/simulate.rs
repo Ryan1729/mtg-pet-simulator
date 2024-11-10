@@ -1,5 +1,5 @@
 use card::Card::{self, *};
-use mana::ManaType::*;
+use mana::{ManaPool, ManaType::*};
 
 use::std::collections::HashSet;
 
@@ -11,6 +11,8 @@ pub enum DrawSpec {
     NthDraw(PermutationNumber),
 }
 use DrawSpec::*;
+
+const NO_SHUFFLING: DrawSpec = NthDraw(0);
 
 #[derive(Clone, Copy, Debug)]
 pub enum PetSpec {
@@ -168,7 +170,7 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
                     0 => {},
                     1 => {
                         let card = state.hand.remove(land_indexes[0]);
-                        state.board.lands.push(card);
+                        state.board = state.board.enter(card);
                         state.land_plays -= 1;
 
                         one_path_forward!()
@@ -181,10 +183,7 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
 
                             output.push(Ok(State {
                                 hand: h.to_vec(),
-                                board: Board {
-                                    lands: push(&state.board.lands, card),
-                                    ..state.board.clone()
-                                },
+                                board: state.board.enter(card),
                                 land_plays: state.land_plays - 1,
                                 ..state.clone()
                             }));
@@ -196,6 +195,18 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
             }
 
             let mut output = Vec::with_capacity(state.hand.len());
+
+            for (spend_state, mana_pool) in state.mana_spends() {
+                for card_index in 0..spend_state.hand.len() {
+                    match spend_state.attempt_to_cast(card_index, mana_pool) {
+                        Ok(new_state) => {
+                            output.push(Ok(new_state));
+                        },
+                        Err(_) => {}
+                    }
+                }
+                
+            }
 
             // TODO add more possible plays when there are any
 
@@ -270,10 +281,37 @@ mod push_works {
 /// 64k turns ought to be enough for anybody!
 type TurnNumber = u16;
 
-#[derive(Clone, Debug, Default)]
-struct Board {
-    lands: Vec<Card>,
+mod board {
+    use super::push;
+    use card::Card;
+    use mana::{ManaPool, ManaType::*};
+
+    // Keep things private because we suspect we'll want lots of different
+    // ways to query what is on the board, and that we will care about 
+    // making them fast. So, we expect to want to change the internals
+    // later on, without needing to change all the usages of those
+    // internals.
+    #[derive(Clone, Debug, Default)]
+    pub struct Board {
+        // We suspect we'll want like lands, creatures, etc. as ready to go collections
+        battlefield: Vec<Card>,
+    }
+
+    impl Board {
+        pub fn enter(&self, card: Card) -> Self {
+            Board {
+                battlefield: push(&self.battlefield, card),
+                ..self.clone()
+            }
+        }
+
+        pub fn mana_spends(&self) -> impl Iterator<Item = (Self, ManaPool)> {
+            todo!(); [].into_iter()
+        }
+    }
 }
+use board::Board;
+
 
 #[derive(Copy, Clone, Debug, Default)]
 enum Step {
@@ -292,6 +330,13 @@ type LandPlays = u8;
 
 const INITIAL_LAND_PLAYS: LandPlays = 1;
 
+type CardIndex = usize;
+
+#[derive(Debug)]
+enum AttemptToCastError {
+    NotEnoughMana,
+}
+
 #[derive(Clone, Debug)]
 struct State {
     hand: Hand,
@@ -300,6 +345,32 @@ struct State {
     land_plays: LandPlays,
     step: Step,
     turn_number: TurnNumber,
+}
+
+impl State {
+    fn mana_spends(&self) -> impl Iterator<Item = (Self, ManaPool)> + '_ {
+        // Theoretically there could be mana spends involving the
+        // deck or library.
+        self.board
+            .mana_spends()
+            .map(|(board, mana)| {
+                (
+                    State {
+                        board,
+                        ..self.clone()
+                    },
+                    mana
+                )
+            })      
+    }
+
+    fn attempt_to_cast(
+        &self,
+        card_index: CardIndex,
+        man_pool: ManaPool,
+    ) -> Result<Self, AttemptToCastError> {
+        todo!()
+    }
 }
 
 #[cfg(test)]
@@ -481,6 +552,80 @@ mod calculate_works {
                     assert!(does_match);
                 }
             }
+        }
+    }
+
+    #[test]
+    fn on_stacked_swamps_and_cleric() {
+        let _deck: [Card; 60] = [
+            StarscapeCleric,
+            StarscapeCleric,
+            StarscapeCleric,
+            StarscapeCleric,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+        ];
+
+        let outcomes = calculate(Spec{ draw: NO_SHUFFLING, pet: Goldfish }, &_deck).unwrap();
+
+        for outcome in outcomes {
+            let does_match = matches!(outcome, OutcomeAt{ outcome: Win, ..});
+
+            assert!(does_match);
         }
     }
 }
