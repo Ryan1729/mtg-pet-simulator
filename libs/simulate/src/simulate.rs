@@ -205,7 +205,7 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
                         Err(_) => {}
                     }
                 }
-                
+
             }
 
             // TODO add more possible plays when there are any
@@ -282,31 +282,125 @@ mod push_works {
 type TurnNumber = u16;
 
 mod board {
-    use super::push;
     use card::Card;
     use mana::{ManaPool, ManaType::*};
 
+    use std::collections::{BTreeMap, BTreeSet};
+
+    #[derive(Clone, Copy, Debug)]
+    enum PermanentKind {
+        Card(Card),
+    }
+
+    type IsTapped = bool;
+    //type IsFlipped = bool;
+    //type IsFaceDown = bool;
+    //type IsPhasedOut = bool;
+
+    #[derive(Clone, Copy, Debug)]
+    struct Permanent {
+        kind: PermanentKind,
+        // "CR 110.6. A permanent’s status is its physical state. There are four status categories, each of which has two
+        // possible values: tapped/untapped, flipped/unflipped, face up/face down, and phased in/phased out.
+        // Each permanent always has one of these values for each of these categories."
+        is_tapped: IsTapped,
+        //is_flipped: IsFlipped,
+        //is_face_down: IsFaceDown,
+        //is_phased_out: IsPhasedOut,
+    }
+
     // Keep things private because we suspect we'll want lots of different
-    // ways to query what is on the board, and that we will care about 
+    // ways to query what is on the board, and that we will care about
     // making them fast. So, we expect to want to change the internals
     // later on, without needing to change all the usages of those
     // internals.
     #[derive(Clone, Debug, Default)]
     pub struct Board {
         // We suspect we'll want like lands, creatures, etc. as ready to go collections
-        battlefield: Vec<Card>,
+        permanents: Vec<Permanent>,
+    }
+
+    fn push(slice: &[Permanent], element: Permanent) -> Vec<Permanent> {
+        let mut output = Vec::with_capacity(slice.len() + 1);
+
+        for e in slice.iter() {
+            output.push(e.clone());
+        }
+        output.push(element);
+
+        output
     }
 
     impl Board {
         pub fn enter(&self, card: Card) -> Self {
             Board {
-                battlefield: push(&self.battlefield, card),
+                permanents: push(
+                    &self.permanents,
+                    Permanent{
+                        kind: PermanentKind::Card(card),
+                        is_tapped: Card::enters_tapped(card),
+                    }
+                ),
                 ..self.clone()
             }
         }
+    }
 
+    /// A Mana Ability that can be played on the battlefield, including the costs.
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    struct ManaAbility {
+        // TODO
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    enum ManaAbilityKind {
+        Card(Card)
+    }
+
+    fn apply_mana_ability(mana_pool: &mut ManaPool, board: &Board, mana_ability: ManaAbility) -> Board {
+        todo!("apply_mana_ability")
+    }
+
+    type ManaAbilitiesSet = BTreeSet<ManaAbility>;
+
+    fn all_subsets(abilities: &[ManaAbility]) -> impl Iterator<Item = ManaAbilitiesSet> {
+        todo!("all_subsets"); [].into_iter()
+    }
+
+    type ManaAbilityKindSet = BTreeSet<ManaAbilityKind>;
+
+    fn to_kind_set(mana_abilities: &ManaAbilitiesSet) -> ManaAbilityKindSet {
+        todo!("to_kind_set")
+    }
+
+    impl Board {
         pub fn mana_spends(&self) -> impl Iterator<Item = (Self, ManaPool)> {
-            todo!(); [].into_iter()
+            let all_mana_abilities = todo!("all_mana_abilities");
+
+            let mut output = BTreeMap::new();
+
+            for mana_abilities in all_subsets(all_mana_abilities) {
+                let key = to_kind_set(&mana_abilities);
+                if output.contains_key(&key) {
+                    // Avoid bothering to track identical options
+                    // like 6 different orders for 3 Swamps.
+                    continue
+                }
+
+                let mut pool = ManaPool::default();
+
+                let mut current_board = self.clone();
+
+                // TODO? is it worth it to avoid doing all the work
+                // up front by making this a custom iterator?
+                for mana_ability in mana_abilities {
+                    current_board = apply_mana_ability(&mut pool, &current_board, mana_ability);
+                }
+
+                output.insert(key, (current_board, pool));
+            }
+
+            output.into_values()
         }
     }
 }
@@ -361,7 +455,7 @@ impl State {
                     },
                     mana
                 )
-            })      
+            })
     }
 
     fn attempt_to_cast(
@@ -369,7 +463,7 @@ impl State {
         card_index: CardIndex,
         man_pool: ManaPool,
     ) -> Result<Self, AttemptToCastError> {
-        todo!()
+        todo!("attempt_to_cast")
     }
 }
 

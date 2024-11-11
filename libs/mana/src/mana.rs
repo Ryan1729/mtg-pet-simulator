@@ -11,7 +11,7 @@ pub enum ManaType {
 pub type ManaAmount = u16;
 
 // TODO? Make the empty pool unrepresentable? 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct ManaPool {
     //pub white: ManaAmount,
     //pub blue: ManaAmount,
