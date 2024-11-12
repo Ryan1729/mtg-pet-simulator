@@ -309,6 +309,12 @@ mod board {
         //is_phased_out: IsPhasedOut,
     }
 
+    impl Permanent {
+        fn mana_abilities(&self) -> impl Iterator<Item = ManaAbility> {
+            todo!(); [].into_iter()
+        }
+    }
+
     // Keep things private because we suspect we'll want lots of different
     // ways to query what is on the board, and that we will care about
     // making them fast. So, we expect to want to change the internals
@@ -346,41 +352,135 @@ mod board {
         }
     }
 
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    enum ManaAbilityKind {
+        //TapForWhite,
+        //TapForBlue,
+        TapForBlack,
+        //TapForRed,
+        //TapForGreen,
+    }
+
+    /// The index of the permanent on the board
+    // TODO? Make this a generational index?
+    type PermanentIndex = usize;
+
+    /// The index of the mana abilty on the given permanent
+    type ManaAbilityIndex = u8;
+
     /// A Mana Ability that can be played on the battlefield, including the costs.
     #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
     struct ManaAbility {
-        // TODO
+        kind: ManaAbilityKind,
+        permanent_index: PermanentIndex,
+        ability_index: ManaAbilityIndex,
     }
 
-    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-    enum ManaAbilityKind {
-        Card(Card)
-    }
-
-    fn apply_mana_ability(mana_pool: &mut ManaPool, board: &Board, mana_ability: ManaAbility) -> Board {
+    fn apply_mana_ability(mana_pool: &mut ManaPool, board: &Board, mana_ability: &ManaAbility) -> Board {
         todo!("apply_mana_ability")
     }
 
     type ManaAbilitiesSet = BTreeSet<ManaAbility>;
 
-    fn all_subsets(abilities: &[ManaAbility]) -> impl Iterator<Item = ManaAbilitiesSet> {
-        todo!("all_subsets"); [].into_iter()
+    type IndexSet = u128;
+    const INDEX_SET_MAX_ELEMENTS: usize = IndexSet::BITS as _;
+
+    // Making this streaming iterator instead of a flat list, to avoid using 2^n memory, seems worth it.
+    struct ManaAbilitiesSubsets {
+        current_set: ManaAbilitiesSet,
+        index_set: IndexSet,
+        all: Box<[ManaAbility]>,
     }
 
-    type ManaAbilityKindSet = BTreeSet<ManaAbilityKind>;
+    // Written aiming to be compatible with streaming_iterator but currently
+    // not bothering to actually depend on that crate until we have
+    // a reason to.
+    impl ManaAbilitiesSubsets {
+        fn advance(&mut self) {
+            if (self.index_set.ilog2() as usize) < self.all.len() {
+                self.current_set.clear();
 
-    fn to_kind_set(mana_abilities: &ManaAbilitiesSet) -> ManaAbilityKindSet {
-        todo!("to_kind_set")
+                let mut used = self.index_set;
+
+                let mut index = 0;
+
+                while used > 0 {
+                    if used & 1 != 0 {
+                        self.current_set.insert(self.all[index].clone());
+                    }
+                    index += 1;
+                    used >>= 1;
+                }
+
+                self.index_set += 1;
+            }
+        }
+
+        fn get(&self) -> Option<&ManaAbilitiesSet> {
+            if (self.index_set.ilog2() as usize) < self.all.len() {
+                Some(&self.current_set)
+            } else {
+                None
+            }
+        }
+
+        fn next(&mut self) -> Option<&ManaAbilitiesSet> {
+            self.advance();
+            self.get()
+        }
+    }
+
+    fn mana_abilty_subsets(board: &Board) -> ManaAbilitiesSubsets {
+        let all_mana_abilities =
+            board.permanents
+                .iter()
+                .flat_map(|p| p.mana_abilities())
+                .collect::<Vec<_>>();
+
+        let len = all_mana_abilities.len();
+
+        // If this limit ever gets reached, we can instead use an arbitrary length bitset
+        // with the same overall interface, including addition.
+        assert!(len <= INDEX_SET_MAX_ELEMENTS, "Too many mana abilities to fit subset indexes in 128 bits");
+
+        ManaAbilitiesSubsets {
+            current_set: <_>::default(),
+            index_set: <_>::default(),
+            all: all_mana_abilities.into(),
+        }
+    }
+
+    /// A `ManaAbilityKey` represents everything about a given mana ability that
+    /// would be relevant when making a decision. So two different land types
+    /// should have different keys, two identical untapped Swamps should have
+    /// the same key, but a Swamp enchanted with a Kudzu should have a different key.
+    /// Two different mana abilities on the same permanent should also have different keys
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    struct ManaAbilityKey {
+        kind: ManaAbilityKeyKind,
+        index: ManaAbilityIndex,
+        // TODO other fields as needed
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    enum ManaAbilityKeyKind {
+        Card(Card)
+    }
+
+    type ManaAbilityKeySet = BTreeSet<ManaAbilityKey>;
+
+    fn to_key_set(mana_abilities: &ManaAbilitiesSet) -> ManaAbilityKeySet {
+        todo!("to_key_set")
     }
 
     impl Board {
         pub fn mana_spends(&self) -> impl Iterator<Item = (Self, ManaPool)> {
-            let all_mana_abilities = todo!("all_mana_abilities");
+            let mut all_mana_abilty_subsets = mana_abilty_subsets(self);
 
             let mut output = BTreeMap::new();
 
-            for mana_abilities in all_subsets(all_mana_abilities) {
-                let key = to_kind_set(&mana_abilities);
+            while let Some(mana_abilities) = all_mana_abilty_subsets.next() {
+                let key = to_key_set(&mana_abilities);
                 if output.contains_key(&key) {
                     // Avoid bothering to track identical options
                     // like 6 different orders for 3 Swamps.
