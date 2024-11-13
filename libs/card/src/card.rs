@@ -20,7 +20,7 @@ pub enum Card {
     NighthawkScavenger,
     ToxicDeluge,
     VitoThornOfTheDuskRose,
-    BakeIntoThePie,
+    BakeIntoAPie,
     EnduringTenacity,
     HagraMauling,
     SheoldredTheApocalypse,
@@ -64,7 +64,7 @@ impl Card {
             | NighthawkScavenger
             | ToxicDeluge
             | VitoThornOfTheDuskRose
-            | BakeIntoThePie
+            | BakeIntoAPie
             | EnduringTenacity
             | SheoldredTheApocalypse => false,
         }
@@ -102,7 +102,7 @@ impl Card {
             | NighthawkScavenger
             | ToxicDeluge
             | VitoThornOfTheDuskRose
-            | BakeIntoThePie
+            | BakeIntoAPie
             | EnduringTenacity
             | SheoldredTheApocalypse => false,
         }

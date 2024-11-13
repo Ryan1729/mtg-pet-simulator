@@ -34,7 +34,7 @@ fn main() {
         VitoThornOfTheDuskRose,
         VitoThornOfTheDuskRose,
         VitoThornOfTheDuskRose,
-        BakeIntoThePie,
+        BakeIntoAPie,
         EnduringTenacity,
         HagraMauling,
         SheoldredTheApocalypse,

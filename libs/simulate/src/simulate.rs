@@ -309,9 +309,76 @@ mod board {
         //is_phased_out: IsPhasedOut,
     }
 
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    enum ManaAbilityKind {
+        //TapForWhite,
+        //TapForBlue,
+        TapForBlack,
+        //TapForRed,
+        //TapForGreen,
+        TapForColorless,
+        SacrificeCreatureForTwoBlack,
+    }
+    use ManaAbilityKind::*;
+
+    static NO_MANA_ABILITIES: &[ManaAbilityKind] = &[];
+    static TAP_FOR_BLACK: &[ManaAbilityKind] = &[TapForBlack];
+    static PHYREXIAN_TOWER_ABILITIES: &[ManaAbilityKind] = &[TapForColorless, SacrificeCreatureForTwoBlack];
+    static TAP_FOR_COLORLESS: &[ManaAbilityKind] = &[TapForColorless];
+
+    fn mana_ability_kinds_for_card(card: Card) -> impl Iterator<Item = &'static ManaAbilityKind> {
+        use Card::*;
+        // TODO Probably could return iterators over references to statics to avoid this allocation
+        let output: _ = match card {
+            // Plains
+            // Island
+            Swamp
+            // Mountian
+            // Forest
+            | HagraMauling
+            | MemorialToFolly
+            | TheDrossPits => TAP_FOR_BLACK.into_iter(),
+            PhyrexianTower => PHYREXIAN_TOWER_ABILITIES.into_iter(),
+            BlastZone
+            | SceneOfTheCrime => TAP_FOR_COLORLESS.into_iter(),
+            InsatiableAvarice
+            | SchemingSymmetry
+            | FeedTheSwarm
+            | SignInBlood
+            | StarscapeCleric
+            | WishclawTalisman
+            | CeaseAndDesist
+            | HowlingMine
+            | JetMedallion
+            | MindStone
+            | GrimTutor
+            | HoodedBlightfang
+            | NighthawkScavenger
+            | ToxicDeluge
+            | VitoThornOfTheDuskRose
+            | BakeIntoAPie
+            | EnduringTenacity
+            | SheoldredTheApocalypse
+            | ExquisiteBlood => NO_MANA_ABILITIES.into_iter(),
+        };
+
+        output
+    }
+
     impl Permanent {
-        fn mana_abilities(&self) -> impl Iterator<Item = ManaAbility> {
-            todo!(); [].into_iter()
+        fn mana_abilities(&self, permanent_index: PermanentIndex) -> impl Iterator<Item = ManaAbility> {
+            match self.kind {
+                PermanentKind::Card(card) =>
+                    mana_ability_kinds_for_card(card)
+                        .enumerate()
+                        .map(move |(ability_index, kind)|
+                            ManaAbility{
+                                kind: *kind,
+                                permanent_index,
+                                ability_index: ability_index.try_into().unwrap(),
+                            }
+                        ),
+            }
         }
     }
 
@@ -352,15 +419,6 @@ mod board {
         }
     }
 
-    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-    enum ManaAbilityKind {
-        //TapForWhite,
-        //TapForBlue,
-        TapForBlack,
-        //TapForRed,
-        //TapForGreen,
-    }
-
     /// The index of the permanent on the board
     // TODO? Make this a generational index?
     type PermanentIndex = usize;
@@ -396,31 +454,43 @@ mod board {
     // not bothering to actually depend on that crate until we have
     // a reason to.
     impl ManaAbilitiesSubsets {
+        fn fully_advanced(&self) -> bool {
+            let log_2_or_0 =
+                if self.index_set == 0 {
+                    0
+                } else {
+                    self.index_set.ilog2() as usize
+                };
+
+            log_2_or_0 >= self.all.len()
+        }
+
         fn advance(&mut self) {
-            if (self.index_set.ilog2() as usize) < self.all.len() {
-                self.current_set.clear();
-
-                let mut used = self.index_set;
-
-                let mut index = 0;
-
-                while used > 0 {
-                    if used & 1 != 0 {
-                        self.current_set.insert(self.all[index].clone());
-                    }
-                    index += 1;
-                    used >>= 1;
-                }
-
-                self.index_set += 1;
+            if self.fully_advanced() {
+                return
             }
+            self.current_set.clear();
+
+            let mut used = self.index_set;
+
+            let mut index = 0;
+
+            while used > 0 {
+                if used & 1 != 0 {
+                    self.current_set.insert(self.all[index].clone());
+                }
+                index += 1;
+                used >>= 1;
+            }
+
+            self.index_set += 1;
         }
 
         fn get(&self) -> Option<&ManaAbilitiesSet> {
-            if (self.index_set.ilog2() as usize) < self.all.len() {
-                Some(&self.current_set)
-            } else {
+            if self.fully_advanced() {
                 None
+            } else {
+                Some(&self.current_set)
             }
         }
 
@@ -434,7 +504,8 @@ mod board {
         let all_mana_abilities =
             board.permanents
                 .iter()
-                .flat_map(|p| p.mana_abilities())
+                .enumerate()
+                .flat_map(|(i, p)| p.mana_abilities(i))
                 .collect::<Vec<_>>();
 
         let len = all_mana_abilities.len();
