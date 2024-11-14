@@ -287,7 +287,7 @@ mod board {
 
     use std::collections::{BTreeMap, BTreeSet};
 
-    #[derive(Clone, Copy, Debug)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
     enum PermanentKind {
         Card(Card),
     }
@@ -297,7 +297,7 @@ mod board {
     //type IsFaceDown = bool;
     //type IsPhasedOut = bool;
 
-    #[derive(Clone, Copy, Debug)]
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
     struct Permanent {
         kind: PermanentKind,
         // "CR 110.6. A permanent’s status is its physical state. There are four status categories, each of which has two
@@ -328,8 +328,7 @@ mod board {
 
     fn mana_ability_kinds_for_card(card: Card) -> impl Iterator<Item = &'static ManaAbilityKind> {
         use Card::*;
-        // TODO Probably could return iterators over references to statics to avoid this allocation
-        let output: _ = match card {
+        match card {
             // Plains
             // Island
             Swamp
@@ -360,13 +359,13 @@ mod board {
             | EnduringTenacity
             | SheoldredTheApocalypse
             | ExquisiteBlood => NO_MANA_ABILITIES.into_iter(),
-        };
-
-        output
+        }
     }
 
     impl Permanent {
         fn mana_abilities(&self, permanent_index: PermanentIndex) -> impl Iterator<Item = ManaAbility> {
+            let permanent_kind = self.kind.clone();
+
             match self.kind {
                 PermanentKind::Card(card) =>
                     mana_ability_kinds_for_card(card)
@@ -375,6 +374,7 @@ mod board {
                             ManaAbility{
                                 kind: *kind,
                                 permanent_index,
+                                permanent_kind: permanent_kind.clone(),
                                 ability_index: ability_index.try_into().unwrap(),
                             }
                         ),
@@ -430,8 +430,9 @@ mod board {
     #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
     struct ManaAbility {
         kind: ManaAbilityKind,
-        permanent_index: PermanentIndex,
         ability_index: ManaAbilityIndex,
+        permanent_kind: PermanentKind,
+        permanent_index: PermanentIndex,
     }
 
     fn apply_mana_ability(mana_pool: &mut ManaPool, board: &Board, mana_ability: &ManaAbility) -> Board {
@@ -528,9 +529,24 @@ mod board {
     /// Two different mana abilities on the same permanent should also have different keys
     #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
     struct ManaAbilityKey {
-        kind: ManaAbilityKeyKind,
+        kind: PermanentKind,
         index: ManaAbilityIndex,
         // TODO other fields as needed
+    }
+
+    impl From<&ManaAbility> for ManaAbilityKey {
+        fn from(ManaAbility{ permanent_kind, ability_index, .. }: &ManaAbility) -> Self {
+            Self {
+                kind: permanent_kind.clone(),
+                index: *ability_index,
+            }
+        }
+    }
+
+    impl From<ManaAbility> for ManaAbilityKey {
+        fn from(ability: ManaAbility) -> Self {
+            From::from(&ability)
+        }
     }
 
     #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -538,10 +554,31 @@ mod board {
         Card(Card)
     }
 
+    impl From<&PermanentKind> for ManaAbilityKeyKind{
+        fn from(kind: &PermanentKind) -> Self {
+            match kind {
+                PermanentKind::Card(card) => Self::Card(*card),
+            }
+        }
+    }
+
+    impl From<PermanentKind> for ManaAbilityKeyKind {
+        fn from(kind: PermanentKind) -> Self {
+            From::from(&kind)
+        }
+    }
+
     type ManaAbilityKeySet = BTreeSet<ManaAbilityKey>;
 
-    fn to_key_set(mana_abilities: &ManaAbilitiesSet) -> ManaAbilityKeySet {
-        todo!("to_key_set")
+    fn to_key_set(board: &Board, mana_abilities: &ManaAbilitiesSet) -> ManaAbilityKeySet {
+        mana_abilities.iter()
+            .map(|ability| {
+                ManaAbilityKey {
+                    kind: ability.permanent_kind,
+                    index: ability.ability_index,
+                }
+            })
+            .collect()
     }
 
     impl Board {
@@ -551,7 +588,7 @@ mod board {
             let mut output = BTreeMap::new();
 
             while let Some(mana_abilities) = all_mana_abilty_subsets.next() {
-                let key = to_key_set(&mana_abilities);
+                let key = to_key_set(self, &mana_abilities);
                 if output.contains_key(&key) {
                     // Avoid bothering to track identical options
                     // like 6 different orders for 3 Swamps.
