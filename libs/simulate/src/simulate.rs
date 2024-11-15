@@ -1,7 +1,8 @@
 use card::Card::{self, *};
-use mana::{ManaPool, ManaType::*};
+use mana::{ManaCost, ManaPool, ManaType::*, SpendError};
 
-use::std::collections::HashSet;
+use std::collections::HashSet;
+use std::iter::ExactSizeIterator;
 
 type PermutationNumber = u128;
 
@@ -196,11 +197,13 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
 
             let mut output = Vec::with_capacity(state.hand.len());
 
-            for (spend_state, mana_pool) in state.mana_spends() {
+            for spend_state in state.mana_spends() {
                 for card_index in 0..spend_state.hand.len() {
-                    match spend_state.attempt_to_cast(card_index, mana_pool) {
-                        Ok(new_state) => {
-                            output.push(Ok(new_state));
+                    match spend_state.attempt_to_cast(card_index) {
+                        Ok(new_states) => {
+                            for new_state in new_states {
+                                output.push(Ok(new_state));
+                            }
                         },
                         Err(_) => {}
                     }
@@ -283,7 +286,7 @@ type TurnNumber = u16;
 
 mod board {
     use card::Card;
-    use mana::{ManaPool, ManaType::*};
+    use mana::{ManaCost, ManaPool, ManaType::*, SpendError};
 
     use std::collections::{BTreeMap, BTreeSet};
 
@@ -389,6 +392,7 @@ mod board {
     // internals.
     #[derive(Clone, Debug, Default)]
     pub struct Board {
+        mana_pool: ManaPool,
         // We suspect we'll want like lands, creatures, etc. as ready to go collections
         permanents: Vec<Permanent>,
     }
@@ -405,6 +409,13 @@ mod board {
     }
 
     impl Board {
+        pub fn with_mana_pool(&self, mana_pool: ManaPool) -> Self {
+            Self {
+                mana_pool,
+                ..self.clone()
+            }
+        }
+
         pub fn enter(&self, card: Card) -> Self {
             Board {
                 permanents: push(
@@ -435,7 +446,7 @@ mod board {
         permanent_index: PermanentIndex,
     }
 
-    fn apply_mana_ability(mana_pool: &mut ManaPool, board: &Board, mana_ability: &ManaAbility) -> Board {
+    fn apply_mana_ability(board: &mut Board, mana_ability: &ManaAbility) -> Board {
         todo!("apply_mana_ability")
     }
 
@@ -582,7 +593,13 @@ mod board {
     }
 
     impl Board {
-        pub fn mana_spends(&self) -> impl Iterator<Item = (Self, ManaPool)> {
+        pub fn spend(&self, mana_cost: ManaCost) -> Result<Self, SpendError> {
+            let mana_pool = self.mana_pool.spend(mana_cost)?;
+
+            Ok(self.with_mana_pool(mana_pool))
+        }
+
+        pub fn mana_spends(&self) -> impl Iterator<Item = Self> {
             let mut all_mana_abilty_subsets = mana_abilty_subsets(self);
 
             let mut output = BTreeMap::new();
@@ -595,17 +612,15 @@ mod board {
                     continue
                 }
 
-                let mut pool = ManaPool::default();
-
                 let mut current_board = self.clone();
 
                 // TODO? is it worth it to avoid doing all the work
                 // up front by making this a custom iterator?
                 for mana_ability in mana_abilities {
-                    current_board = apply_mana_ability(&mut pool, &current_board, mana_ability);
+                    current_board = apply_mana_ability(&mut current_board, mana_ability);
                 }
 
-                output.insert(key, (current_board, pool));
+                output.insert(key, current_board);
             }
 
             output.into_values()
@@ -633,9 +648,17 @@ type LandPlays = u8;
 const INITIAL_LAND_PLAYS: LandPlays = 1;
 
 type CardIndex = usize;
+// Maybe something like this later, with additional variants for 
+// things like flashback.
+//type HandIndex = usize;
+//enum CardIndex {
+    //Hand(HandIndex)
+//}
+
 
 #[derive(Debug)]
 enum AttemptToCastError {
+    NoCard,
     NotEnoughMana,
 }
 
@@ -650,28 +673,94 @@ struct State {
 }
 
 impl State {
-    fn mana_spends(&self) -> impl Iterator<Item = (Self, ManaPool)> + '_ {
+    fn with_board(&self, board: Board) -> Self {
+        Self {
+            board,
+            ..self.clone()
+        }
+    }
+
+    fn with_mana_pool(&self, mana_pool: ManaPool) -> Self {
+        Self {
+            board: self.board.with_mana_pool(mana_pool),
+            ..self.clone()
+        }
+    }
+
+    fn mana_spends(&self) -> impl Iterator<Item = Self> + '_ {
         // Theoretically there could be mana spends involving the
-        // deck or library.
+        // hand or library.
         self.board
             .mana_spends()
-            .map(|(board, mana)| {
-                (
-                    State {
-                        board,
-                        ..self.clone()
-                    },
-                    mana
-                )
+            .map(|board| {
+                State {
+                    board,
+                    ..self.clone()
+                }
             })
     }
 
     fn attempt_to_cast(
         &self,
         card_index: CardIndex,
-        man_pool: ManaPool,
-    ) -> Result<Self, AttemptToCastError> {
-        todo!("attempt_to_cast")
+    ) -> Result<impl Iterator<Item = Self>, AttemptToCastError> {
+        use AttemptToCastError::*;
+        let card = *self.hand.get(card_index).ok_or(NoCard)?;
+
+        let cast_options = self.cast_options(card);
+
+        let mut output = Vec::with_capacity(cast_options.len());
+
+        for cast_option in cast_options {
+            let Ok(new_board) = self.board.spend(cast_option.mana_cost) else {
+                continue
+            };
+
+            let Ok(new_states) = 
+                self.with_board(new_board)
+                    .sacrifice_creatures(cast_option.creature_cost) else {
+                continue
+            };
+
+            output.extend(
+                new_states
+                    .map(|s| s.apply_effect(cast_option.effect))
+            );
+        }
+
+        if output.is_empty() {
+            Err(NotEnoughMana)
+        } else {
+            Ok(output.into_iter())
+        }
+    }
+}
+
+type CreatureCount = u8;
+
+type Effect = /* TODO */ ();
+
+struct CastOption {
+    mana_cost: ManaCost,
+    creature_cost: CreatureCount,
+    effect: Effect,
+}
+
+impl State {
+    fn cast_options(&self, card: Card) -> impl ExactSizeIterator<Item = CastOption> {
+        todo!(); [].into_iter()
+    }
+
+    fn apply_effect(&self, effect: Effect) -> Self {
+        todo!();
+    }
+}
+
+type SacrificeCreaturesError = ();
+
+impl State {
+    fn sacrifice_creatures(&self, creature_count: CreatureCount) -> Result<impl Iterator<Item = Self>, SacrificeCreaturesError> {
+        todo!(); Ok([].into_iter())
     }
 }
 
