@@ -648,7 +648,7 @@ type LandPlays = u8;
 const INITIAL_LAND_PLAYS: LandPlays = 1;
 
 type CardIndex = usize;
-// Maybe something like this later, with additional variants for 
+// Maybe something like this later, with additional variants for
 // things like flashback.
 //type HandIndex = usize;
 //enum CardIndex {
@@ -716,7 +716,7 @@ impl State {
                 continue
             };
 
-            let Ok(new_states) = 
+            let Ok(new_states) =
                 self.with_board(new_board)
                     .sacrifice_creatures(cast_option.creature_cost) else {
                 continue
@@ -724,7 +724,12 @@ impl State {
 
             output.extend(
                 new_states
-                    .map(|s| s.apply_effect(cast_option.effect))
+                    .flat_map(|s|
+                        cast_option.effects.iter()
+                            .map(move |effect|
+                                s.apply_effect(*effect)
+                            )
+                    )
             );
         }
 
@@ -738,21 +743,49 @@ impl State {
 
 type CreatureCount = u8;
 
-type Effect = /* TODO */ ();
+#[derive(Copy, Clone, Debug)]
+enum Effect {
+    // TODO? Make a NonEmptyManaPool? Is Add 0 manan something we want to represent?
+    AddMana(ManaPool),
+}
 
 struct CastOption {
     mana_cost: ManaCost,
     creature_cost: CreatureCount,
-    effect: Effect,
+    effects: Vec<Effect>,
 }
 
 impl State {
     fn cast_options(&self, card: Card) -> impl ExactSizeIterator<Item = CastOption> {
-        todo!(); [].into_iter()
+        match card {
+            PhyrexianTower => {
+                vec![
+                    CastOption {
+                        mana_cost: ManaCost::default(),
+                        creature_cost: 0,
+                        effects: vec![Effect::AddMana(ManaPool {
+                            colorless: 1,
+                            ..ManaPool::default()
+                        })],
+                    },
+                    CastOption {
+                        mana_cost: ManaCost::default(),
+                        creature_cost: 1,
+                        effects: vec![Effect::AddMana(ManaPool {
+                            black: 2,
+                            ..ManaPool::default()
+                        })],
+                    },
+                ].into_iter()
+            },
+            _ => {
+                todo!("cast_options for {card:?}"); vec![].into_iter()
+            },
+        }
     }
 
     fn apply_effect(&self, effect: Effect) -> Self {
-        todo!();
+        todo!("apply_effect");
     }
 }
 
