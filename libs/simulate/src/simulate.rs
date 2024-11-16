@@ -432,7 +432,7 @@ mod board {
 
     /// The index of the permanent on the board
     // TODO? Make this a generational index?
-    type PermanentIndex = usize;
+    pub type PermanentIndex = usize;
 
     /// The index of the mana abilty on the given permanent
     type ManaAbilityIndex = u8;
@@ -789,11 +789,44 @@ impl State {
     }
 }
 
+fn length_n_subsets<A>(slice: &[A], n: u8) -> Vec<Vec<A>> {
+    todo!("length_n_subsets");
+}
+
 type SacrificeCreaturesError = ();
 
+use board::PermanentIndex;
+
 impl State {
+    fn sacrificeable_creatures(&self) -> Vec<PermanentIndex> {
+        todo!("sacrificeable_creatures");
+    }
+
     fn sacrifice_creatures(&self, creature_count: CreatureCount) -> Result<impl Iterator<Item = Self>, SacrificeCreaturesError> {
-        todo!(); Ok([].into_iter())
+        let sacrificeable_creatures = self.sacrificeable_creatures();
+        if (creature_count as usize) > sacrificeable_creatures.len() {
+            return Err(())
+        }
+
+        let subsets = length_n_subsets(&sacrificeable_creatures, creature_count);
+
+        let mut output = Vec::with_capacity(subsets.len());
+
+        for subset in subsets {
+            let mut state = self.clone();
+
+            for index in subset.into_iter().rev() {
+                state = state.sacrifice_creature_at(index)?;
+            }
+
+            output.push(state);
+        }
+
+        Ok(output.into_iter())
+    }
+
+    fn sacrifice_creature_at(&self, permanent_index: PermanentIndex) -> Result<Self, SacrificeCreaturesError> {
+        todo!("sacrifice_creature_at")
     }
 }
 
