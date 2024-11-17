@@ -43,7 +43,6 @@ impl Card {
             // Mountian
             // Forest
             | HagraMauling
-            | ExquisiteBlood
             | MemorialToFolly
             | PhyrexianTower
             | TheDrossPits
@@ -66,7 +65,44 @@ impl Card {
             | VitoThornOfTheDuskRose
             | BakeIntoAPie
             | EnduringTenacity
-            | SheoldredTheApocalypse => false,
+            | SheoldredTheApocalypse
+            | ExquisiteBlood => false,
+        }
+    }
+
+    pub fn is_a_creature(self) -> bool {
+        use Card::*;
+        match self {
+            // Plains
+            // Island
+            Swamp
+            // Mountian
+            // Forest
+            | HagraMauling
+            | ExquisiteBlood
+            | MemorialToFolly
+            | PhyrexianTower
+            | TheDrossPits
+            | BlastZone
+            | SceneOfTheCrime 
+            | InsatiableAvarice
+            | SchemingSymmetry
+            | FeedTheSwarm
+            | SignInBlood
+            | WishclawTalisman
+            | CeaseAndDesist
+            | HowlingMine
+            | JetMedallion
+            | MindStone
+            | GrimTutor
+            | ToxicDeluge
+            | BakeIntoAPie
+            | EnduringTenacity => false,
+            StarscapeCleric
+            | HoodedBlightfang
+            | NighthawkScavenger
+            | VitoThornOfTheDuskRose
+            | SheoldredTheApocalypse => true,
         }
     }
 

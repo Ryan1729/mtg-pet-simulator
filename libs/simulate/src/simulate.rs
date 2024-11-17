@@ -312,6 +312,15 @@ mod board {
         //is_phased_out: IsPhasedOut,
     }
 
+    impl Permanent {
+        pub fn is_a_creature(&self) -> bool {
+            use PermanentKind::*;
+            match self.kind {
+                Card(card) => card.is_a_creature(),
+            }
+        }
+    }
+
     #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
     enum ManaAbilityKind {
         //TapForWhite,
@@ -593,6 +602,26 @@ mod board {
     }
 
     impl Board {
+        pub fn creatures(&self) -> Box<[PermanentIndex]> {
+            let len = self.permanents.len();
+
+            let mut output = Vec::with_capacity(len / 2);
+
+            for i in 0..len {
+                if self.permanents[i].is_a_creature() {
+                    output.push(i);
+                }
+            }
+
+            output.into()
+        }
+
+        pub fn sacrificeable_creatures(&self) -> Box<[PermanentIndex]> {
+            // There are creatures that can't be sacrificed, and effects like "can't cause you to sacrifice permanents".
+            // So this won't necessarily always be just all creatures
+            self.creatures()
+        }
+
         pub fn spend(&self, mana_cost: ManaCost) -> Result<Self, SpendError> {
             let mana_pool = self.mana_pool.spend(mana_cost)?;
 
@@ -798,12 +827,8 @@ type SacrificeCreaturesError = ();
 use board::PermanentIndex;
 
 impl State {
-    fn sacrificeable_creatures(&self) -> Vec<PermanentIndex> {
-        todo!("sacrificeable_creatures");
-    }
-
     fn sacrifice_creatures(&self, creature_count: CreatureCount) -> Result<impl Iterator<Item = Self>, SacrificeCreaturesError> {
-        let sacrificeable_creatures = self.sacrificeable_creatures();
+        let sacrificeable_creatures = self.board.sacrificeable_creatures();
         if (creature_count as usize) > sacrificeable_creatures.len() {
             return Err(())
         }
