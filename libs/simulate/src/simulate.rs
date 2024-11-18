@@ -1,7 +1,7 @@
 use card::Card::{self, *};
 use mana::{ManaCost, ManaPool, ManaType::*, SpendError};
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::iter::ExactSizeIterator;
 
 type PermutationNumber = u128;
@@ -284,11 +284,17 @@ mod push_works {
 /// 64k turns ought to be enough for anybody!
 type TurnNumber = u16;
 
+type IndexSet = u128;
+const INDEX_SET_MAX_ELEMENTS: usize = IndexSet::BITS as _;
+
 mod board {
     use card::Card;
     use mana::{ManaCost, ManaPool, ManaType::*, SpendError};
 
+    use super::{IndexSet, INDEX_SET_MAX_ELEMENTS};
+
     use std::collections::{BTreeMap, BTreeSet};
+
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
     enum PermanentKind {
@@ -460,9 +466,6 @@ mod board {
     }
 
     type ManaAbilitiesSet = BTreeSet<ManaAbility>;
-
-    type IndexSet = u128;
-    const INDEX_SET_MAX_ELEMENTS: usize = IndexSet::BITS as _;
 
     // Making this streaming iterator instead of a flat list, to avoid using 2^n memory, seems worth it.
     struct ManaAbilitiesSubsets {
@@ -818,8 +821,84 @@ impl State {
     }
 }
 
-fn length_n_subsets<A>(slice: &[A], n: u8) -> Vec<Vec<A>> {
-    todo!("length_n_subsets");
+type Index = usize;
+
+type MaterializedIndexSet = BTreeSet<Index>;
+
+// Making this streaming iterator instead of a flat list, to avoid using 2^n memory, seems worth it.
+struct LengthNIndexSubsets {
+    target_length: u8,
+    current_set: MaterializedIndexSet,
+    index_set: IndexSet,
+    all: Box<[Index]>,
+}
+
+// Written aiming to be compatible with streaming_iterator but currently
+// not bothering to actually depend on that crate until we have
+// a reason to.
+impl LengthNIndexSubsets {
+    fn fully_advanced(&self) -> bool {
+        let log_2_or_0 =
+            if self.index_set == 0 {
+                0
+            } else {
+                self.index_set.ilog2() as usize
+            };
+
+        log_2_or_0 >= self.all.len()
+    }
+
+    fn advance(&mut self) {
+        loop {
+            if self.fully_advanced() {
+                return
+            }
+
+            if self.index_set.count_ones() != self.target_length as u32 {
+                self.index_set += 1;
+
+                continue
+            }
+
+            self.current_set.clear();
+
+            let mut used = self.index_set;
+
+            let mut index = 0;
+
+            while used > 0 {
+                if used & 1 != 0 {
+                    self.current_set.insert(self.all[index].clone());
+                }
+                index += 1;
+                used >>= 1;
+            }
+
+            self.index_set += 1;
+        }
+    }
+
+    fn get(&self) -> Option<&MaterializedIndexSet> {
+        if self.fully_advanced() {
+            None
+        } else {
+            Some(&self.current_set)
+        }
+    }
+
+    fn next(&mut self) -> Option<&MaterializedIndexSet> {
+        self.advance();
+        self.get()
+    }
+}
+
+fn length_n_subsets(slice: &[Index], target_length: u8) -> LengthNIndexSubsets {
+    LengthNIndexSubsets {
+        target_length,
+        current_set: MaterializedIndexSet::new(),
+        index_set: 0,
+        all: slice.into(),
+    }
 }
 
 type SacrificeCreaturesError = ();
@@ -833,15 +912,15 @@ impl State {
             return Err(())
         }
 
-        let subsets = length_n_subsets(&sacrificeable_creatures, creature_count);
+        let mut subsets = length_n_subsets(&sacrificeable_creatures, creature_count);
 
-        let mut output = Vec::with_capacity(subsets.len());
+        let mut output = Vec::with_capacity(creature_count as usize * 3 /* probably not a good estimate! */);
 
-        for subset in subsets {
+        while let Some(subset) = subsets.next() {
             let mut state = self.clone();
 
             for index in subset.into_iter().rev() {
-                state = state.sacrifice_creature_at(index)?;
+                state = state.sacrifice_creature_at(*index)?;
             }
 
             output.push(state);
