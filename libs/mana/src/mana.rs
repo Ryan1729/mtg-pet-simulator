@@ -37,3 +37,18 @@ impl ManaPool {
         })
     }
 }
+
+pub type AddError = ();
+
+impl ManaPool {
+    pub fn add(self, cost: ManaPool) -> Result<Self, AddError> {
+        Ok(Self {
+            //white: self.white.checked_add(cost.white).ok_or(())?,
+            //blue: self.blue.checked_add(cost.blue).ok_or(())?,
+            black: self.black.checked_add(cost.black).ok_or(())?,
+            //red: self.red.checked_add(cost.red).ok_or(())?,
+            //green: self.green.checked_add(cost.green).ok_or(())?,
+            colorless: self.colorless.checked_add(cost.colorless).ok_or(())?,
+        })
+    }
+}

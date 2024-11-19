@@ -328,7 +328,7 @@ mod board {
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-    enum ManaAbilityKind {
+    enum ManaAbilityKindSpec {
         //TapForWhite,
         //TapForBlue,
         TapForBlack,
@@ -337,14 +337,27 @@ mod board {
         TapForColorless,
         SacrificeCreatureForTwoBlack,
     }
-    use ManaAbilityKind::*;
+    use ManaAbilityKindSpec::*;
 
-    static NO_MANA_ABILITIES: &[ManaAbilityKind] = &[];
-    static TAP_FOR_BLACK: &[ManaAbilityKind] = &[TapForBlack];
-    static PHYREXIAN_TOWER_ABILITIES: &[ManaAbilityKind] = &[TapForColorless, SacrificeCreatureForTwoBlack];
-    static TAP_FOR_COLORLESS: &[ManaAbilityKind] = &[TapForColorless];
+    pub type CreatureIndex = usize;
 
-    fn mana_ability_kinds_for_card(card: Card) -> impl Iterator<Item = &'static ManaAbilityKind> {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    enum ManaAbilityKind {
+        //TapForWhite,
+        //TapForBlue,
+        TapForBlack,
+        //TapForRed,
+        //TapForGreen,
+        TapForColorless,
+        SacrificeCreatureForTwoBlack(CreatureIndex),
+    }
+
+    static NO_MANA_ABILITIES: &[ManaAbilityKindSpec] = &[];
+    static TAP_FOR_BLACK: &[ManaAbilityKindSpec] = &[TapForBlack];
+    static PHYREXIAN_TOWER_ABILITIES: &[ManaAbilityKindSpec] = &[TapForColorless, SacrificeCreatureForTwoBlack];
+    static TAP_FOR_COLORLESS: &[ManaAbilityKindSpec] = &[TapForColorless];
+
+    fn mana_ability_kind_specs_for_card(card: Card) -> impl Iterator<Item = &'static ManaAbilityKindSpec> {
         use Card::*;
         match card {
             // Plains
@@ -381,19 +394,51 @@ mod board {
     }
 
     impl Permanent {
-        fn mana_abilities(&self, permanent_index: PermanentIndex) -> impl Iterator<Item = ManaAbility> {
+        fn mana_abilities<'board>(&self, board: &'board Board, permanent_index: PermanentIndex) -> impl Iterator<Item = ManaAbility> + 'board {
             let permanent_kind = self.kind.clone();
 
             match self.kind {
                 PermanentKind::Card(card) =>
-                    mana_ability_kinds_for_card(card)
+                    mana_ability_kind_specs_for_card(card)
                         .enumerate()
-                        .map(move |(ability_index, kind)|
-                            ManaAbility{
-                                kind: *kind,
-                                permanent_index,
-                                permanent_kind: permanent_kind.clone(),
-                                ability_index: ability_index.try_into().unwrap(),
+                        .flat_map(move |(ability_index, kind_spec)|
+                            match kind_spec {
+                                //TapForWhite => ManaAbilityKind::TapForWhite,
+                                //TapForBlue => ManaAbilityKind::TapForBlue,
+                                TapForBlack => vec![
+                                    ManaAbility{
+                                        kind: ManaAbilityKind::TapForBlack,
+                                        permanent_index,
+                                        permanent_kind: permanent_kind.clone(),
+                                        ability_index: ability_index.try_into().unwrap(),
+                                    }
+                                ].into_iter(),
+                                //TapForRed => ManaAbilityKind::TapForRed,
+                                //TapForGreen => ManaAbilityKind::TapForGreen,
+                                TapForColorless => vec![
+                                    ManaAbility{
+                                        kind: ManaAbilityKind::TapForColorless,
+                                        permanent_index,
+                                        permanent_kind: permanent_kind.clone(),
+                                        ability_index: ability_index.try_into().unwrap(),
+                                    }
+                                ].into_iter(),
+                                SacrificeCreatureForTwoBlack => {
+                                    board.sacrificeable_creatures()
+                                        .iter()
+                                        .map(|index| {
+                                            ManaAbility{
+                                                kind: ManaAbilityKind::SacrificeCreatureForTwoBlack(*index),
+                                                permanent_index,
+                                                permanent_kind: permanent_kind.clone(),
+                                                ability_index: ability_index.try_into().unwrap(),
+                                            }
+                                        })
+                                        // TODO? Avoid this allocation that's here to avoid dealing with 
+                                        // the closure type?
+                                        .collect::<Vec<_>>()
+                                        .into_iter()
+                                },
                             }
                         ),
             }
@@ -431,6 +476,13 @@ mod board {
             }
         }
 
+        pub fn with_additional_mana(&self, additional_mana_pool: ManaPool) -> Result<Self, mana::AddError> {
+            Ok(Self {
+                mana_pool: self.mana_pool.add(additional_mana_pool)?,
+                ..self.clone()
+            })
+        }
+
         pub fn enter(&self, card: Card) -> Self {
             Board {
                 permanents: push(
@@ -461,8 +513,30 @@ mod board {
         permanent_index: PermanentIndex,
     }
 
-    fn apply_mana_ability(board: &mut Board, mana_ability: &ManaAbility) -> Board {
-        todo!("apply_mana_ability")
+    type ApplyManaAbilityError = ();
+
+    fn apply_mana_ability(board: &Board, mana_ability: &ManaAbility) -> Result<Board, ApplyManaAbilityError> {
+        macro_rules! tap_for {
+            ($board: ident $(,)? $pool: expr) => {
+                board.tap_permanent_at(mana_ability.permanent_index)
+                    .and_then(|b| b.with_additional_mana($pool))
+            }
+        }
+
+        match mana_ability.kind {
+            //ManaAbilityKind::TapForWhite => tap_for!(board, ManaPool { white: 1, ..ManaPool::default() }),
+            //ManaAbilityKind::TapForBlue => tap_for!(board, ManaPool { blue: 1, ..ManaPool::default() }),
+            ManaAbilityKind::TapForBlack => tap_for!(board, ManaPool { black: 1, ..ManaPool::default() }),
+            //ManaAbilityKind::TapForRed => tap_for!(board, ManaPool { red: 1, ..ManaPool::default() }),
+            //ManaAbilityKind::TapForGreen => tap_for!(board, ManaPool { green: 1, ..ManaPool::default() }),
+            ManaAbilityKind::TapForColorless => tap_for!(board, ManaPool { colorless: 1, ..ManaPool::default() }),
+            ManaAbilityKind::SacrificeCreatureForTwoBlack(creature_index) => {
+                board.sacrifice_creature_at(creature_index)
+                    .and_then(|b| {
+                        tap_for!(b, ManaPool { black: 2, ..ManaPool::default() })
+                    })
+            },
+        }
     }
 
     type ManaAbilitiesSet = BTreeSet<ManaAbility>;
@@ -529,7 +603,7 @@ mod board {
             board.permanents
                 .iter()
                 .enumerate()
-                .flat_map(|(i, p)| p.mana_abilities(i))
+                .flat_map(|(i, p)| p.mana_abilities(board, i))
                 .collect::<Vec<_>>();
 
         let len = all_mana_abilities.len();
@@ -604,7 +678,40 @@ mod board {
             .collect()
     }
 
+    type TapPermanentError = ();
+
     impl Board {
+        pub fn sacrifice_creatures(&self, creature_count: super::CreatureCount) -> Result<impl Iterator<Item = Self>, super::SacrificeCreaturesError> {
+            let sacrificeable_creatures = self.sacrificeable_creatures();
+            if (creature_count as usize) > sacrificeable_creatures.len() {
+                return Err(())
+            }
+    
+            let mut subsets = super::length_n_subsets(&sacrificeable_creatures, creature_count);
+    
+            let mut output = Vec::with_capacity(creature_count as usize * 3 /* probably not a good estimate! */);
+    
+            while let Some(subset) = subsets.next() {
+                let mut state = self.clone();
+    
+                for index in subset.into_iter().rev() {
+                    state = state.sacrifice_creature_at(*index)?;
+                }
+    
+                output.push(state);
+            }
+    
+            Ok(output.into_iter())
+        }
+    
+        fn sacrifice_creature_at(&self, permanent_index: PermanentIndex) -> Result<Self, super::SacrificeCreaturesError> {
+            todo!("sacrifice_creature_at")
+        }
+
+        fn tap_permanent_at(&self, permanent_index: PermanentIndex) -> Result<Self, TapPermanentError> {
+            todo!("tap_permanent_at")
+        }
+
         pub fn creatures(&self) -> Box<[PermanentIndex]> {
             let len = self.permanents.len();
 
@@ -649,7 +756,9 @@ mod board {
                 // TODO? is it worth it to avoid doing all the work
                 // up front by making this a custom iterator?
                 for mana_ability in mana_abilities {
-                    current_board = apply_mana_ability(&mut current_board, mana_ability);
+                    if let Ok(board) = apply_mana_ability(&current_board, mana_ability) {
+                        current_board = board;
+                    }
                 }
 
                 output.insert(key, current_board);
@@ -748,8 +857,10 @@ impl State {
                 continue
             };
 
+            let new_state = self.with_board(new_board);
+
             let Ok(new_states) =
-                self.with_board(new_board)
+                new_state
                     .sacrifice_creatures(cast_option.creature_cost) else {
                 continue
             };
@@ -810,8 +921,12 @@ impl State {
                     },
                 ].into_iter()
             },
+            TheDrossPits
+            | Swamp
+            | BlastZone
+            | MemorialToFolly => vec![].into_iter(),
             _ => {
-                todo!("cast_options for {card:?}"); vec![].into_iter()
+                todo!("cast_options for {card:?}"); 
             },
         }
     }
@@ -906,31 +1021,8 @@ type SacrificeCreaturesError = ();
 use board::PermanentIndex;
 
 impl State {
-    fn sacrifice_creatures(&self, creature_count: CreatureCount) -> Result<impl Iterator<Item = Self>, SacrificeCreaturesError> {
-        let sacrificeable_creatures = self.board.sacrificeable_creatures();
-        if (creature_count as usize) > sacrificeable_creatures.len() {
-            return Err(())
-        }
-
-        let mut subsets = length_n_subsets(&sacrificeable_creatures, creature_count);
-
-        let mut output = Vec::with_capacity(creature_count as usize * 3 /* probably not a good estimate! */);
-
-        while let Some(subset) = subsets.next() {
-            let mut state = self.clone();
-
-            for index in subset.into_iter().rev() {
-                state = state.sacrifice_creature_at(*index)?;
-            }
-
-            output.push(state);
-        }
-
-        Ok(output.into_iter())
-    }
-
-    fn sacrifice_creature_at(&self, permanent_index: PermanentIndex) -> Result<Self, SacrificeCreaturesError> {
-        todo!("sacrifice_creature_at")
+    fn sacrifice_creatures(&self, creature_count: CreatureCount) -> Result<impl Iterator<Item = Self> + '_, SacrificeCreaturesError> {
+        self.board.sacrifice_creatures(creature_count).map(|boards| boards.map(|board| Self { board, ..self.clone() }))
     }
 }
 
