@@ -1,3 +1,6 @@
+#![deny(unreachable_patterns)]
+#![allow(non_snake_case)]
+
 use card::Card::{self, *};
 use mana::{ManaCost, ManaPool, ManaType::*, SpendError};
 
@@ -138,6 +141,15 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
     }
 
     match state.step {
+        Untap => {
+            for permanent in state.board.permanents_mut() {
+                permanent.untap();
+            }
+
+            state.step = Draw;
+
+            one_path_forward!()
+        }
         Draw => {
             if let Some((card, d)) = draw(state.deck) {
                 state.deck = d;
@@ -307,7 +319,7 @@ mod board {
     //type IsPhasedOut = bool;
 
     #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-    struct Permanent {
+    pub struct Permanent {
         kind: PermanentKind,
         // "CR 110.6. A permanent’s status is its physical state. There are four status categories, each of which has two
         // possible values: tapped/untapped, flipped/unflipped, face up/face down, and phased in/phased out.
@@ -324,6 +336,10 @@ mod board {
             match self.kind {
                 Card(card) => card.is_a_creature(),
             }
+        }
+
+        pub fn untap(&mut self) {
+            self.is_tapped = true;
         }
     }
 
@@ -469,6 +485,10 @@ mod board {
     }
 
     impl Board {
+        pub fn permanents_mut(&mut self) -> impl Iterator<Item = &mut Permanent> {
+            self.permanents.iter_mut()
+        }
+
         pub fn with_mana_pool(&self, mana_pool: ManaPool) -> Self {
             Self {
                 mana_pool,
@@ -774,7 +794,7 @@ use board::Board;
 #[derive(Copy, Clone, Debug, Default)]
 enum Step {
     #[default]
-    //Untap,
+    Untap,
     //Upkeep,
     Draw,
     MainPhase1,
