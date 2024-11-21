@@ -1,4 +1,5 @@
 #![deny(unreachable_patterns)]
+#![deny(unused_must_use)]
 #![allow(non_snake_case)]
 
 use card::Card::{self, *};
@@ -210,7 +211,9 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
             let mut output = Vec::with_capacity(state.hand.len());
 
             for spend_state in state.mana_spends() {
+dbg!(&state, &spend_state);
                 for card_index in 0..spend_state.hand.len() {
+dbg!("attempt_to_cast", spend_state.hand.get(card_index));
                     match spend_state.attempt_to_cast(card_index) {
                         Ok(new_states) => {
                             for new_state in new_states {
@@ -503,6 +506,7 @@ mod board {
             })
         }
 
+        #[must_use]
         pub fn enter(&self, card: Card) -> Self {
             Board {
                 permanents: push(
@@ -562,6 +566,7 @@ mod board {
     type ManaAbilitiesSet = BTreeSet<ManaAbility>;
 
     // Making this streaming iterator instead of a flat list, to avoid using 2^n memory, seems worth it.
+    #[derive(Debug)]
     struct ManaAbilitiesSubsets {
         current_set: ManaAbilitiesSet,
         index_set: IndexSet,
@@ -618,14 +623,53 @@ mod board {
         }
     }
 
+    #[cfg(test)]
+    mod mana_abilty_subsets_works {
+        use super::*;
+
+        const ABILITY: ManaAbility = ManaAbility {
+            kind: ManaAbilityKind::TapForBlack,
+            ability_index: 0,
+            permanent_kind: PermanentKind::Card(
+                card::Card::Swamp,
+            ),
+            permanent_index: 0,
+        };
+
+        #[test]
+        fn on_this_starting_state() {
+            let mut iter = ManaAbilitiesSubsets {
+                current_set: <_>::default(),
+                index_set: <_>::default(),
+                all: [ABILITY].into(),
+            };
+
+            // Subsets of a one element set inlcude only 
+            // the empty set and a one element set.
+
+            let empty = iter.next();
+
+            assert_eq!(empty, Some(&ManaAbilitiesSet::new()));
+dbg!(&iter, iter.fully_advanced());
+            let full = iter.next();
+
+            assert_eq!(full, Some(&([ABILITY].into())));
+
+            let none = iter.next();
+
+            assert_eq!(none, None);
+        }
+        
+    }
+
     fn mana_abilty_subsets(board: &Board) -> ManaAbilitiesSubsets {
         let all_mana_abilities =
-            board.permanents
+            dbg!(&board.permanents)
                 .iter()
                 .enumerate()
                 .flat_map(|(i, p)| p.mana_abilities(board, i))
                 .collect::<Vec<_>>();
-
+dbg!(&all_mana_abilities);
         let len = all_mana_abilities.len();
 
         // If this limit ever gets reached, we can instead use an arbitrary length bitset
@@ -759,8 +803,15 @@ mod board {
         }
 
         pub fn mana_spends(&self) -> impl Iterator<Item = Self> {
-            let mut all_mana_abilty_subsets = mana_abilty_subsets(self);
+            {
+                let mut all_mana_abilty_subsets = mana_abilty_subsets(self);
+                while let Some(mana_abilities) = all_mana_abilty_subsets.next() {
+                    dbg!(&mana_abilities);
+                }
+            }
 
+            let mut all_mana_abilty_subsets = mana_abilty_subsets(self);
+dbg!(&all_mana_abilty_subsets);
             let mut output = BTreeMap::new();
 
             while let Some(mana_abilities) = all_mana_abilty_subsets.next() {
@@ -772,7 +823,7 @@ mod board {
                 }
 
                 let mut current_board = self.clone();
-
+dbg!(&current_board, &mana_abilities);
                 // TODO? is it worth it to avoid doing all the work
                 // up front by making this a custom iterator?
                 for mana_ability in mana_abilities {
@@ -785,6 +836,38 @@ mod board {
             }
 
             output.into_values()
+        }
+    }
+
+    #[cfg(test)]
+    mod mana_spends_works {
+        use super::*;
+        use card::Card::*;
+
+        #[test]
+        fn on_a_default_board() {
+            let mut board = Board::default();
+
+            let vec = board.mana_spends().collect::<Vec<_>>();
+
+            assert_eq!(vec.len(), 0);
+        }
+
+        #[test]
+        fn on_a_single_swamp() {
+            let mut board = Board::default();
+
+            board = board.enter(Swamp);
+
+            assert!(board.permanents.len() > 0, "pre-condition failure");
+
+            let vec = board.mana_spends().collect::<Vec<_>>();
+
+            // We should have the option to not tap the swamp
+            // and the option to tap the swamp.
+            // This is because we call mana_spends in cases where we might have a 1 drop in hand.
+            dbg!(&vec);
+            assert!(vec.len() >= 2);
         }
     }
 }
@@ -867,12 +950,13 @@ impl State {
     ) -> Result<impl Iterator<Item = Self>, AttemptToCastError> {
         use AttemptToCastError::*;
         let card = *self.hand.get(card_index).ok_or(NoCard)?;
-
+dbg!(card);
         let cast_options = self.cast_options(card);
 
         let mut output = Vec::with_capacity(cast_options.len());
 
         for cast_option in cast_options {
+dbg!(&cast_option);
             let Ok(new_board) = self.board.spend(cast_option.mana_cost) else {
                 continue
             };
@@ -912,6 +996,7 @@ enum Effect {
     AddMana(ManaPool),
 }
 
+#[derive(Debug)]
 struct CastOption {
     mana_cost: ManaCost,
     creature_cost: CreatureCount,
