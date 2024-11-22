@@ -453,7 +453,7 @@ mod board {
                                                 ability_index: ability_index.try_into().unwrap(),
                                             }
                                         })
-                                        // TODO? Avoid this allocation that's here to avoid dealing with 
+                                        // TODO? Avoid this allocation that's here to avoid dealing with
                                         // the closure type?
                                         .collect::<Vec<_>>()
                                         .into_iter()
@@ -571,6 +571,7 @@ mod board {
         current_set: ManaAbilitiesSet,
         index_set: IndexSet,
         all: Box<[ManaAbility]>,
+        last_advance_was_skipped: bool,
     }
 
     // Written aiming to be compatible with streaming_iterator but currently
@@ -578,6 +579,10 @@ mod board {
     // a reason to.
     impl ManaAbilitiesSubsets {
         fn fully_advanced(&self) -> bool {
+            if self.all.is_empty() {
+                return self.index_set > 0;
+            }
+
             let log_2_or_0 =
                 if self.index_set == 0 {
                     0
@@ -590,6 +595,7 @@ mod board {
 
         fn advance(&mut self) {
             if self.fully_advanced() {
+                self.last_advance_was_skipped = true;
                 return
             }
             self.current_set.clear();
@@ -610,7 +616,7 @@ mod board {
         }
 
         fn get(&self) -> Option<&ManaAbilitiesSet> {
-            if self.fully_advanced() {
+            if self.last_advance_was_skipped {
                 None
             } else {
                 Some(&self.current_set)
@@ -636,21 +642,61 @@ mod board {
             permanent_index: 0,
         };
 
+        const TWO_ABILITIES: [ManaAbility; 2] =
+            [
+                ManaAbility {
+                    kind: ManaAbilityKind::TapForColorless,
+                    ability_index: 0,
+                    permanent_kind: PermanentKind::Card(
+                        card::Card::PhyrexianTower,
+                    ),
+                    permanent_index: 0,
+                },
+                ManaAbility {
+                    kind: ManaAbilityKind::SacrificeCreatureForTwoBlack(0),
+                    ability_index: 1,
+                    permanent_kind: PermanentKind::Card(
+                        card::Card::PhyrexianTower,
+                    ),
+                    permanent_index: 0,
+                },
+            ];
+
         #[test]
-        fn on_this_starting_state() {
+        fn on_a_zero_element_all() {
             let mut iter = ManaAbilitiesSubsets {
                 current_set: <_>::default(),
                 index_set: <_>::default(),
-                all: [ABILITY].into(),
+                all: [].into(),
+                last_advance_was_skipped: <_>::default(),
             };
-
-            // Subsets of a one element set inlcude only 
-            // the empty set and a one element set.
 
             let empty = iter.next();
 
             assert_eq!(empty, Some(&ManaAbilitiesSet::new()));
-dbg!(&iter, iter.fully_advanced());
+
+            let none = iter.next();
+
+            assert_eq!(none, None);
+        }
+
+        #[test]
+        fn on_a_one_element_all() {
+            let mut iter = ManaAbilitiesSubsets {
+                current_set: <_>::default(),
+                index_set: <_>::default(),
+                all: [ABILITY].into(),
+                last_advance_was_skipped: <_>::default(),
+            };
+
+            // Subsets of a one element set with
+            // an element called A include just
+            // [], and [A]
+
+            let empty = iter.next();
+
+            assert_eq!(empty, Some(&ManaAbilitiesSet::new()));
+
             let full = iter.next();
 
             assert_eq!(full, Some(&([ABILITY].into())));
@@ -659,7 +705,40 @@ dbg!(&iter, iter.fully_advanced());
 
             assert_eq!(none, None);
         }
-        
+
+        #[test]
+        fn on_a_two_element_all() {
+            let mut iter = ManaAbilitiesSubsets {
+                current_set: <_>::default(),
+                index_set: <_>::default(),
+                all: TWO_ABILITIES.into(),
+                last_advance_was_skipped: <_>::default(),
+            };
+
+            // Subsets of a two element set with
+            // elements called A and B include
+            // [], [A], [B], [A, B]
+
+            let empty = iter.next();
+
+            assert_eq!(empty, Some(&ManaAbilitiesSet::new()));
+
+            let first = iter.next();
+
+            assert_eq!(first, Some(&([TWO_ABILITIES[0].clone()].into())));
+
+            let second = iter.next();
+
+            assert_eq!(second, Some(&([TWO_ABILITIES[1].clone()].into())));
+
+            let both = iter.next();
+
+            assert_eq!(both, Some(&(TWO_ABILITIES.clone().into())));
+
+            let none = iter.next();
+
+            assert_eq!(none, None);
+        }
     }
 
     fn mana_abilty_subsets(board: &Board) -> ManaAbilitiesSubsets {
@@ -680,6 +759,7 @@ dbg!(&all_mana_abilities);
             current_set: <_>::default(),
             index_set: <_>::default(),
             all: all_mana_abilities.into(),
+            last_advance_was_skipped: <_>::default(),
         }
     }
 
@@ -750,24 +830,24 @@ dbg!(&all_mana_abilities);
             if (creature_count as usize) > sacrificeable_creatures.len() {
                 return Err(())
             }
-    
+
             let mut subsets = super::length_n_subsets(&sacrificeable_creatures, creature_count);
-    
+
             let mut output = Vec::with_capacity(creature_count as usize * 3 /* probably not a good estimate! */);
-    
+
             while let Some(subset) = subsets.next() {
                 let mut state = self.clone();
-    
+
                 for index in subset.into_iter().rev() {
                     state = state.sacrifice_creature_at(*index)?;
                 }
-    
+
                 output.push(state);
             }
-    
+
             Ok(output.into_iter())
         }
-    
+
         fn sacrifice_creature_at(&self, permanent_index: PermanentIndex) -> Result<Self, super::SacrificeCreaturesError> {
             todo!("sacrifice_creature_at")
         }
@@ -803,13 +883,6 @@ dbg!(&all_mana_abilities);
         }
 
         pub fn mana_spends(&self) -> impl Iterator<Item = Self> {
-            {
-                let mut all_mana_abilty_subsets = mana_abilty_subsets(self);
-                while let Some(mana_abilities) = all_mana_abilty_subsets.next() {
-                    dbg!(&mana_abilities);
-                }
-            }
-
             let mut all_mana_abilty_subsets = mana_abilty_subsets(self);
 dbg!(&all_mana_abilty_subsets);
             let mut output = BTreeMap::new();
@@ -850,7 +923,8 @@ dbg!(&current_board, &mana_abilities);
 
             let vec = board.mana_spends().collect::<Vec<_>>();
 
-            assert_eq!(vec.len(), 0);
+            // Not spending any mana counts as an option.
+            assert_eq!(vec.len(), 1);
         }
 
         #[test]
@@ -1031,7 +1105,7 @@ impl State {
             | BlastZone
             | MemorialToFolly => vec![].into_iter(),
             _ => {
-                todo!("cast_options for {card:?}"); 
+                todo!("cast_options for {card:?}");
             },
         }
     }
@@ -1051,6 +1125,7 @@ struct LengthNIndexSubsets {
     current_set: MaterializedIndexSet,
     index_set: IndexSet,
     all: Box<[Index]>,
+    last_advance_was_skipped: bool,
 }
 
 // Written aiming to be compatible with streaming_iterator but currently
@@ -1058,6 +1133,10 @@ struct LengthNIndexSubsets {
 // a reason to.
 impl LengthNIndexSubsets {
     fn fully_advanced(&self) -> bool {
+        if self.all.is_empty() {
+            return self.index_set > 0;
+        }
+
         let log_2_or_0 =
             if self.index_set == 0 {
                 0
@@ -1070,28 +1149,30 @@ impl LengthNIndexSubsets {
 
     fn advance(&mut self) {
         loop {
+            dbg!(self.fully_advanced(), self.index_set, self.index_set.count_ones() != self.target_length as u32);
             if self.fully_advanced() {
+                self.last_advance_was_skipped = true;
                 return
             }
 
-            if self.index_set.count_ones() != self.target_length as u32 {
+            if self.index_set.count_ones() == self.target_length as u32 {
+                self.current_set.clear();
+
+                let mut used = self.index_set;
+
+                let mut index = 0;
+
+                while used > 0 {
+                    if used & 1 != 0 {
+                        self.current_set.insert(self.all[index].clone());
+                    }
+                    index += 1;
+                    used >>= 1;
+                }
+
                 self.index_set += 1;
 
-                continue
-            }
-
-            self.current_set.clear();
-
-            let mut used = self.index_set;
-
-            let mut index = 0;
-
-            while used > 0 {
-                if used & 1 != 0 {
-                    self.current_set.insert(self.all[index].clone());
-                }
-                index += 1;
-                used >>= 1;
+                break
             }
 
             self.index_set += 1;
@@ -1099,7 +1180,7 @@ impl LengthNIndexSubsets {
     }
 
     fn get(&self) -> Option<&MaterializedIndexSet> {
-        if self.fully_advanced() {
+        if self.last_advance_was_skipped {
             None
         } else {
             Some(&self.current_set)
@@ -1112,12 +1193,123 @@ impl LengthNIndexSubsets {
     }
 }
 
+#[cfg(test)]
+mod length_n_index_subsets_works {
+    use super::*;
+
+    #[test]
+    fn on_a_zero_element_all() {
+        let mut iter = LengthNIndexSubsets {
+            target_length: <_>::default(),
+            current_set: MaterializedIndexSet::new(),
+            index_set: <_>::default(),
+            all: (*(&[])).into(),
+            last_advance_was_skipped: <_>::default(),
+        };
+
+        let empty = iter.next();
+
+        assert_eq!(empty, Some(&MaterializedIndexSet::new()));
+
+        let none = iter.next();
+
+        assert_eq!(none, None);
+    }
+
+    #[test]
+    fn on_a_one_element_all() {
+        {
+            let mut iter = LengthNIndexSubsets {
+                target_length: 0,
+                current_set: MaterializedIndexSet::new(),
+                index_set: <_>::default(),
+                all: (*(&[0])).into(),
+                last_advance_was_skipped: <_>::default(),
+            };
+
+            let empty = iter.next();
+
+            assert_eq!(empty, Some(&MaterializedIndexSet::new()));
+
+            let none = iter.next();
+
+            assert_eq!(none, None);
+        }
+
+        let mut iter = LengthNIndexSubsets {
+            target_length: 1,
+            current_set: MaterializedIndexSet::new(),
+            index_set: <_>::default(),
+            all: (*(&[0])).into(),
+            last_advance_was_skipped: <_>::default(),
+        };
+
+        // Subsets of a one element set with
+        // an element called A include just
+        // [], and [A]
+
+        let full = iter.next();
+
+        assert_eq!(full, Some(&([0].into())));
+
+        let none = iter.next();
+
+        assert_eq!(none, None);
+    }
+
+    #[test]
+    fn on_a_two_element_all() {
+        {
+            let mut iter = LengthNIndexSubsets {
+                target_length: 0,
+                current_set: MaterializedIndexSet::new(),
+                index_set: <_>::default(),
+                all: (*(&[0, 1])).into(),
+                last_advance_was_skipped: <_>::default(),
+            };
+
+            let empty = iter.next();
+
+            assert_eq!(empty, Some(&MaterializedIndexSet::new()));
+
+            let none = iter.next();
+
+            assert_eq!(none, None);
+        }
+
+        let mut iter = LengthNIndexSubsets {
+            target_length: 1,
+            current_set: MaterializedIndexSet::new(),
+            index_set: <_>::default(),
+            all: (*(&[0, 1])).into(),
+            last_advance_was_skipped: <_>::default(),
+        };
+
+        // Subsets of a two element set with
+        // elements called A and B include
+        // [], [A], [B], [A, B]
+
+        let first = iter.next();
+
+        assert_eq!(first, Some(&([0].into())));
+
+        let second = iter.next();
+
+        assert_eq!(second, Some(&([1].into())));
+
+        let none = iter.next();
+
+        assert_eq!(none, None);
+    }
+}
+
 fn length_n_subsets(slice: &[Index], target_length: u8) -> LengthNIndexSubsets {
     LengthNIndexSubsets {
         target_length,
         current_set: MaterializedIndexSet::new(),
-        index_set: 0,
+        index_set: <_>::default(),
         all: slice.into(),
+        last_advance_was_skipped: <_>::default(),
     }
 }
 
