@@ -1,9 +1,10 @@
 #![deny(unreachable_patterns)]
 #![deny(unused_must_use)]
+// #![deny(unused_variables)] // This makes todo! use annoying
 #![allow(non_snake_case)]
 
 use card::Card::{self, *};
-use mana::{ManaCost, ManaPool, ManaType::*, SpendError};
+use mana::{ManaCost, ManaPool};
 
 use std::collections::{BTreeSet, HashSet};
 use std::iter::ExactSizeIterator;
@@ -17,6 +18,7 @@ pub enum DrawSpec {
 }
 use DrawSpec::*;
 
+#[cfg(test)]
 const NO_SHUFFLING: DrawSpec = NthDraw(0);
 
 #[derive(Clone, Copy, Debug)]
@@ -304,7 +306,7 @@ const INDEX_SET_MAX_ELEMENTS: usize = IndexSet::BITS as _;
 
 mod board {
     use card::Card;
-    use mana::{ManaCost, ManaPool, ManaType::*, SpendError};
+    use mana::{ManaCost, ManaPool, SpendError};
 
     use super::{IndexSet, INDEX_SET_MAX_ELEMENTS};
 
@@ -487,6 +489,16 @@ mod board {
         output
     }
 
+    fn set_at(slice: &[Permanent], index: PermanentIndex, element: Permanent) -> Vec<Permanent> {
+        let mut output = slice.to_vec();
+
+        if index < output.len() {
+            output[index] = element;
+        }
+
+        output
+    }
+
     impl Board {
         pub fn permanents_mut(&mut self) -> impl Iterator<Item = &mut Permanent> {
             self.permanents.iter_mut()
@@ -542,7 +554,7 @@ mod board {
     fn apply_mana_ability(board: &Board, mana_ability: &ManaAbility) -> Result<Board, ApplyManaAbilityError> {
         macro_rules! tap_for {
             ($board: ident $(,)? $pool: expr) => {
-                board.tap_permanent_at(mana_ability.permanent_index)
+                $board.tap_permanent_at(mana_ability.permanent_index)
                     .and_then(|b| b.with_additional_mana($pool))
             }
         }
@@ -811,7 +823,7 @@ dbg!(&all_mana_abilities);
 
     type ManaAbilityKeySet = BTreeSet<ManaAbilityKey>;
 
-    fn to_key_set(board: &Board, mana_abilities: &ManaAbilitiesSet) -> ManaAbilityKeySet {
+    fn to_key_set(mana_abilities: &ManaAbilitiesSet) -> ManaAbilityKeySet {
         mana_abilities.iter()
             .map(|ability| {
                 ManaAbilityKey {
@@ -852,8 +864,28 @@ dbg!(&all_mana_abilities);
             todo!("sacrifice_creature_at")
         }
 
+        /// Taps the given permanent as a cost. Returns an `Err` if it is already tapped, or if there is
+        /// no permanent at that index.
         fn tap_permanent_at(&self, permanent_index: PermanentIndex) -> Result<Self, TapPermanentError> {
-            todo!("tap_permanent_at")
+            if let Some(old) = self.permanents.get(permanent_index) {
+                if old.is_tapped {
+                    Err(())
+                } else {
+                    Ok(Self {
+                        permanents: set_at(
+                            &self.permanents,
+                            permanent_index,
+                            Permanent {
+                                is_tapped: true,
+                                ..old.clone()
+                            },
+                        ),
+                        ..self.clone()
+                    })
+                }
+            } else {
+                Err(())
+            }
         }
 
         pub fn creatures(&self) -> Box<[PermanentIndex]> {
@@ -884,11 +916,11 @@ dbg!(&all_mana_abilities);
 
         pub fn mana_spends(&self) -> impl Iterator<Item = Self> {
             let mut all_mana_abilty_subsets = mana_abilty_subsets(self);
-dbg!(&all_mana_abilty_subsets);
+
             let mut output = BTreeMap::new();
 
             while let Some(mana_abilities) = all_mana_abilty_subsets.next() {
-                let key = to_key_set(self, &mana_abilities);
+                let key = to_key_set(&mana_abilities);
                 if output.contains_key(&key) {
                     // Avoid bothering to track identical options
                     // like 6 different orders for 3 Swamps.
@@ -896,7 +928,7 @@ dbg!(&all_mana_abilty_subsets);
                 }
 
                 let mut current_board = self.clone();
-dbg!(&current_board, &mana_abilities);
+
                 // TODO? is it worth it to avoid doing all the work
                 // up front by making this a custom iterator?
                 for mana_ability in mana_abilities {
@@ -919,7 +951,7 @@ dbg!(&current_board, &mana_abilities);
 
         #[test]
         fn on_a_default_board() {
-            let mut board = Board::default();
+            let board = Board::default();
 
             let vec = board.mana_spends().collect::<Vec<_>>();
 
@@ -940,7 +972,6 @@ dbg!(&current_board, &mana_abilities);
             // We should have the option to not tap the swamp
             // and the option to tap the swamp.
             // This is because we call mana_spends in cases where we might have a 1 drop in hand.
-            dbg!(&vec);
             assert!(vec.len() >= 2);
         }
     }
@@ -1315,8 +1346,6 @@ fn length_n_subsets(slice: &[Index], target_length: u8) -> LengthNIndexSubsets {
 
 type SacrificeCreaturesError = ();
 
-use board::PermanentIndex;
-
 impl State {
     fn sacrifice_creatures(&self, creature_count: CreatureCount) -> Result<impl Iterator<Item = Self> + '_, SacrificeCreaturesError> {
         self.board.sacrifice_creatures(creature_count).map(|boards| boards.map(|board| Self { board, ..self.clone() }))
@@ -1384,7 +1413,7 @@ mod calculate_works {
     fn on_8_swamps() {
         let _8_swamps = [Swamp; 8];
 
-        const draw_specs: [DrawSpec; 5] = [
+        const DRAW_SPECS: [DrawSpec; 5] = [
             NthDraw(0),
             NthDraw(1),
             NthDraw(10),
@@ -1392,7 +1421,7 @@ mod calculate_works {
             NthDraw(1_000),
         ];
 
-        for draw in draw_specs {
+        for draw in DRAW_SPECS {
             for pet in PetSpec::ALL {
                 let outcomes = calculate(Spec { draw, pet }, &_8_swamps).unwrap();
 
@@ -1409,7 +1438,7 @@ mod calculate_works {
     fn on_60_swamps() {
         let _60_swamps = [Swamp; 60];
 
-        const draw_specs: [DrawSpec; 7] = [
+        const DRAW_SPECS: [DrawSpec; 7] = [
             NthDraw(0),
             NthDraw(1),
             NthDraw(10),
@@ -1419,7 +1448,7 @@ mod calculate_works {
             NthDraw(100_000),
         ];
 
-        for draw in draw_specs {
+        for draw in DRAW_SPECS {
             for pet in PetSpec::ALL {
                 let outcomes = calculate(Spec { draw, pet }, &_60_swamps).unwrap();
 
@@ -1450,7 +1479,7 @@ mod calculate_works {
             SchemingSymmetry,
         ];
 
-        const draw_specs: [DrawSpec; 5] = [
+        const DRAW_SPECS: [DrawSpec; 5] = [
             NthDraw(0),
             NthDraw(1),
             NthDraw(10),
@@ -1458,7 +1487,7 @@ mod calculate_works {
             NthDraw(1_000),
         ];
 
-        for draw in draw_specs {
+        for draw in DRAW_SPECS {
             for pet in PetSpec::ALL {
                 let outcomes = calculate(Spec { draw, pet }, &_8_non_lands).unwrap();
 
@@ -1484,7 +1513,7 @@ mod calculate_works {
             Swamp,
         ];
 
-        const draw_specs: [DrawSpec; 5] = [
+        const DRAW_SPECS: [DrawSpec; 5] = [
             NthDraw(0),
             NthDraw(1),
             NthDraw(10),
@@ -1492,7 +1521,7 @@ mod calculate_works {
             NthDraw(1_000),
         ];
 
-        for draw in draw_specs {
+        for draw in DRAW_SPECS {
             for pet in PetSpec::ALL {
                 let outcomes = calculate(Spec{ draw, pet }, &_8_swamps_and_non_basic_lands).unwrap();
 
@@ -1588,7 +1617,7 @@ fn draw(deck: Deck) -> Option<(Card, Deck)> {
 
 fn nth_ordered(
     deck: &[Card],
-    mut n: PermutationNumber
+    n: PermutationNumber
 ) -> Result<Deck, CalculateError> {
     let len = deck.len();
     let mut perm = nth_factorial_number(len, n)?;
@@ -1624,7 +1653,7 @@ mod nth_ordered_works {
 
     #[test]
     fn on_all_the_three_element_permutations() {
-        const decks: [[Card; 3]; 6] = [
+        const DECKS: [[Card; 3]; 6] = [
             [_0, _1, _2],
             [_0, _2, _1],
             [_1, _0, _2],
@@ -1633,12 +1662,12 @@ mod nth_ordered_works {
             [_2, _1, _0],
         ];
 
-        for i in 0..decks.len() {
-            let actual = nth_ordered(&decks[0], i.try_into().unwrap()).expect("");
-            assert_eq!(*actual, decks[i], "mismatch at {i}");
+        for i in 0..DECKS.len() {
+            let actual = nth_ordered(&DECKS[0], i.try_into().unwrap()).expect("");
+            assert_eq!(*actual, DECKS[i], "mismatch at {i}");
         }
 
-        let result = nth_ordered(&decks[0], decks.len().try_into().unwrap());
+        let result = nth_ordered(&DECKS[0], DECKS.len().try_into().unwrap());
         assert_eq!(result, Err(PermutationNumberTooHigh), "Mismatch at one past the last valid permutation number");
     }
 }
