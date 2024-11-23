@@ -1030,10 +1030,12 @@ impl State {
     }
 
     fn with_mana_pool(&self, mana_pool: ManaPool) -> Self {
-        Self {
-            board: self.board.with_mana_pool(mana_pool),
-            ..self.clone()
-        }
+        self.with_board(self.board.with_mana_pool(mana_pool))
+    }
+
+    fn with_additional_mana(&self, additional_mana_pool: ManaPool) -> Result<Self, mana::AddError> {
+        self.board.with_additional_mana(additional_mana_pool)
+            .map(|b| self.with_board(b))
     }
 
     fn mana_spends(&self) -> impl Iterator<Item = Self> + '_ {
@@ -1055,13 +1057,17 @@ impl State {
     ) -> Result<impl Iterator<Item = Self>, AttemptToCastError> {
         use AttemptToCastError::*;
         let card = *self.hand.get(card_index).ok_or(NoCard)?;
-dbg!(card);
+
+        // TODO figure out a nice to use API for getting the subset of the 
+        // cast options we can actually cast, since some cards have an
+        // infintie amount of them, since some costs can be paid an arbitrary
+        // number of times. then change the usage code, and the impl of
+        // `self.cast_options` accordingly
         let cast_options = self.cast_options(card);
 
-        let mut output = Vec::with_capacity(cast_options.len());
+        let mut output: Vec<Self> = Vec::with_capacity(cast_options.len());
 
         for cast_option in cast_options {
-dbg!(&cast_option);
             let Ok(new_board) = self.board.spend(cast_option.mana_cost) else {
                 continue
             };
@@ -1074,15 +1080,16 @@ dbg!(&cast_option);
                 continue
             };
 
-            output.extend(
-                new_states
-                    .flat_map(|s|
-                        cast_option.effects.iter()
-                            .map(move |effect|
-                                s.apply_effect(*effect)
-                            )
-                    )
-            );
+            let mapped_states = new_states
+                .flat_map(|s|
+                    cast_option.effects.iter()
+                        .flat_map(move |effect| {
+                            let applied: Result<State, ()> = s.apply_effect(*effect);
+                            applied.into_iter()
+                        })
+                );
+
+            output.extend(mapped_states);
         }
 
         if output.is_empty() {
@@ -1097,11 +1104,24 @@ type CreatureCount = u8;
 
 #[derive(Copy, Clone, Debug)]
 enum Effect {
-    // TODO? Make a NonEmptyManaPool? Is Add 0 manan something we want to represent?
+    // TODO? Make a NonEmptyManaPool? Is Add 0 mana something we want to represent?
     AddMana(ManaPool),
 }
 
-#[derive(Debug)]
+type EffectError = ();
+
+impl State {
+    fn apply_effect(&self, effect: Effect) -> Result<Self, EffectError> {
+        use Effect::*;
+        match effect {
+            AddMana(pool) => {
+                self.with_additional_mana(pool)
+            },
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 struct CastOption {
     mana_cost: ManaCost,
     creature_cost: CreatureCount,
@@ -1111,40 +1131,66 @@ struct CastOption {
 impl State {
     fn cast_options(&self, card: Card) -> impl ExactSizeIterator<Item = CastOption> {
         match card {
-            PhyrexianTower => {
-                vec![
-                    CastOption {
-                        mana_cost: ManaCost::default(),
-                        creature_cost: 0,
-                        effects: vec![Effect::AddMana(ManaPool {
-                            colorless: 1,
-                            ..ManaPool::default()
-                        })],
-                    },
-                    CastOption {
-                        mana_cost: ManaCost::default(),
-                        creature_cost: 1,
-                        effects: vec![Effect::AddMana(ManaPool {
-                            black: 2,
-                            ..ManaPool::default()
-                        })],
-                    },
-                ].into_iter()
-            },
             TheDrossPits
             | Swamp
             | BlastZone
-            | MemorialToFolly => vec![].into_iter(),
+            | MemorialToFolly => CastOptions::Empty,
+            PhyrexianTower => {
+                CastOptions::FixedLength(
+                    vec![
+                        CastOption {
+                            mana_cost: ManaCost::default(),
+                            creature_cost: 0,
+                            effects: vec![Effect::AddMana(ManaPool {
+                                colorless: 1,
+                                ..ManaPool::default()
+                            })],
+                        },
+                        CastOption {
+                            mana_cost: ManaCost::default(),
+                            creature_cost: 1,
+                            effects: vec![Effect::AddMana(ManaPool {
+                                black: 2,
+                                ..ManaPool::default()
+                            })],
+                        },
+                    ].into_iter()
+                )
+            },
             _ => {
                 todo!("cast_options for {card:?}");
             },
         }
     }
+}
 
-    fn apply_effect(&self, effect: Effect) -> Self {
-        todo!("apply_effect");
+enum CastOptions {
+    Empty,
+    FixedLength(std::vec::IntoIter<CastOption>),
+    //Spree(SpreeIter)
+}
+
+impl Iterator for CastOptions {
+    type Item = CastOption;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        use CastOptions::*;
+        match self {
+            Empty => None,
+            FixedLength(ref mut iter) => iter.next(),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        use CastOptions::*;
+        match self {
+            Empty => (0, Some(0)),
+            FixedLength(ref iter) => iter.size_hint(),
+        }
     }
 }
+
+impl ExactSizeIterator for CastOptions {}
 
 type Index = usize;
 
