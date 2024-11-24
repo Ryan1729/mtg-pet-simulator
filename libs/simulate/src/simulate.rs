@@ -500,6 +500,10 @@ mod board {
     }
 
     impl Board {
+        pub fn permanent(&mut self, index: PermanentIndex) -> Option<&Permanent> {
+            self.permanents.get(index)
+        }
+
         pub fn permanents_mut(&mut self) -> impl Iterator<Item = &mut Permanent> {
             self.permanents.iter_mut()
         }
@@ -1058,11 +1062,6 @@ impl State {
         use AttemptToCastError::*;
         let card = *self.hand.get(card_index).ok_or(NoCard)?;
 
-        // TODO figure out a nice to use API for getting the subset of the 
-        // cast options we can actually cast, since some cards have an
-        // infintie amount of them, since some costs can be paid an arbitrary
-        // number of times. then change the usage code, and the impl of
-        // `self.cast_options` accordingly
         let cast_options = self.cast_options(card);
 
         let mut output: Vec<Self> = Vec::with_capacity(cast_options.len());
@@ -1081,13 +1080,23 @@ impl State {
             };
 
             let mapped_states = new_states
-                .flat_map(|s|
-                    cast_option.effects.iter()
-                        .flat_map(move |effect| {
+                .flat_map(|unmapped_state| {
+                    // We don't want all the states between the individual effects!
+                    // But, we do want to allow multiple states to be returned from each 
+                    // stage, in case there are choices as part of them. To summarize, 
+                    // we only want the possible end states after the effect list is done, 
+                    // but we do want all of them!
+                    // Thinking through Insatiable Avarice is probably a good example for this
+                    let mut output = vec![unmapped_state];
+                    for effect in cast_option.effects.iter() {
+                        output = output.into_iter().map(move |s: State| {
                             let applied: Result<State, ()> = s.apply_effect(*effect);
-                            applied.into_iter()
-                        })
-                );
+                            applied.unwrap_or(s)
+                        }).collect();
+                    }
+
+                    output
+                });
 
             output.extend(mapped_states);
         }
@@ -1121,24 +1130,26 @@ impl State {
     }
 }
 
+// Per CR 113.3 the text of spells are Spell Abilities
 #[derive(Clone, Debug)]
-struct CastOption {
+struct Ability {
     mana_cost: ManaCost,
     creature_cost: CreatureCount,
     effects: Vec<Effect>,
 }
 
 impl State {
-    fn cast_options(&self, card: Card) -> impl ExactSizeIterator<Item = CastOption> {
+    #[allow(unused)] // We expect this to be used event
+    fn activated_abilities(&self, index: board::PermanentIndex) -> impl ExactSizeIterator<Item = Ability> {
+        let Some(card) = todo!() else {
+            return Abilities::Empty
+        };
+
         match card {
-            TheDrossPits
-            | Swamp
-            | BlastZone
-            | MemorialToFolly => CastOptions::Empty,
             PhyrexianTower => {
-                CastOptions::FixedLength(
+                Abilities::FixedLength(
                     vec![
-                        CastOption {
+                        Ability {
                             mana_cost: ManaCost::default(),
                             creature_cost: 0,
                             effects: vec![Effect::AddMana(ManaPool {
@@ -1146,7 +1157,7 @@ impl State {
                                 ..ManaPool::default()
                             })],
                         },
-                        CastOption {
+                        Ability {
                             mana_cost: ManaCost::default(),
                             creature_cost: 1,
                             effects: vec![Effect::AddMana(ManaPool {
@@ -1158,23 +1169,48 @@ impl State {
                 )
             },
             _ => {
+                todo!("activated_abilities for {card:?}");
+            },
+        }
+    }
+
+    fn cast_options(&self, card: Card) -> impl ExactSizeIterator<Item = Ability> {
+        // TODO only provide the options that are castable via the mana_pool on self
+        match card {
+            TheDrossPits
+            | Swamp
+            | BlastZone
+            | MemorialToFolly 
+            | PhyrexianTower => Abilities::Empty,
+            //SignInBlood => {
+                //Abilities::FixedLength(
+                    //vec![
+                        //Ability {
+                            //mana_cost: ManaCost::default(),
+                            //creature_cost: 0,
+                            //effects: vec![Effect::TargerPlayerDrawsTwoCardsLosesTwoLife],
+                        //},
+                    //].into_iter()
+                //)
+            //},
+            _ => {
                 todo!("cast_options for {card:?}");
             },
         }
     }
 }
 
-enum CastOptions {
+enum Abilities {
     Empty,
-    FixedLength(std::vec::IntoIter<CastOption>),
+    FixedLength(std::vec::IntoIter<Ability>),
     //Spree(SpreeIter)
 }
 
-impl Iterator for CastOptions {
-    type Item = CastOption;
+impl Iterator for Abilities {
+    type Item = Ability;
 
     fn next(&mut self) -> Option<Self::Item> {
-        use CastOptions::*;
+        use Abilities::*;
         match self {
             Empty => None,
             FixedLength(ref mut iter) => iter.next(),
@@ -1182,7 +1218,7 @@ impl Iterator for CastOptions {
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        use CastOptions::*;
+        use Abilities::*;
         match self {
             Empty => (0, Some(0)),
             FixedLength(ref iter) => iter.size_hint(),
@@ -1190,7 +1226,7 @@ impl Iterator for CastOptions {
     }
 }
 
-impl ExactSizeIterator for CastOptions {}
+impl ExactSizeIterator for Abilities {}
 
 type Index = usize;
 
