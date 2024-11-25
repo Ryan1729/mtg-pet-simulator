@@ -308,7 +308,7 @@ mod board {
     use card::Card;
     use mana::{ManaCost, ManaPool, SpendError};
 
-    use super::{IndexSet, INDEX_SET_MAX_ELEMENTS};
+    use super::{Ability, Abilities, Effect, IndexSet, INDEX_SET_MAX_ELEMENTS, SpreeIter};
 
     use std::collections::{BTreeMap, BTreeSet};
 
@@ -841,6 +841,59 @@ dbg!(&all_mana_abilities);
     type TapPermanentError = ();
 
     impl Board {
+        pub fn cast_options(&self, card: Card) -> impl ExactSizeIterator<Item = Ability> {
+            use Card::*;
+            // Note: only provide the options that are castable via the mana_pool on self
+            match card {
+                TheDrossPits
+                | Swamp
+                | BlastZone
+                | MemorialToFolly 
+                | PhyrexianTower => Abilities::Empty,
+                //SignInBlood => {
+                    //Abilities::FixedLength(
+                        //vec![
+                            //Ability {
+                                //mana_cost: ManaCost::default(),
+                                //creature_cost: 0,
+                                //effects: vec![Effect::TargetPlayerDrawsTwoCardsLosesTwoLife],
+                            //},
+                        //].into_iter()
+                    //)
+                //},
+                InsatiableAvarice => Abilities::Spree(
+                    SpreeIter::new(
+                        self.mana_pool.clone(),
+                        ManaCost {
+                            black: 1,
+                            ..ManaCost::default()
+                        },
+                        &[
+                            Ability {
+                                mana_cost: ManaCost {
+                                    colorless: 2,
+                                    ..ManaCost::default()
+                                },
+                                creature_cost: 0,
+                                effects: vec![Effect::SearchForCardTopOfDeckShuffle],
+                            },
+                            Ability {
+                                mana_cost: ManaCost {
+                                    black: 2,
+                                    ..ManaCost::default()
+                                },
+                                creature_cost: 0,
+                                effects: vec![Effect::TargetPlayerDrawsThreeCardsLosesThreeLife],
+                            },
+                        ]
+                    )
+                ),
+                _ => {
+                    todo!("cast_options for {card:?}");
+                },
+            }
+        }
+
         pub fn sacrifice_creatures(&self, creature_count: super::CreatureCount) -> Result<impl Iterator<Item = Self>, super::SacrificeCreaturesError> {
             let sacrificeable_creatures = self.sacrificeable_creatures();
             if (creature_count as usize) > sacrificeable_creatures.len() {
@@ -1115,6 +1168,8 @@ type CreatureCount = u8;
 enum Effect {
     // TODO? Make a NonEmptyManaPool? Is Add 0 mana something we want to represent?
     AddMana(ManaPool),
+    SearchForCardTopOfDeckShuffle,
+    TargetPlayerDrawsThreeCardsLosesThreeLife,
 }
 
 type EffectError = ();
@@ -1126,6 +1181,8 @@ impl State {
             AddMana(pool) => {
                 self.with_additional_mana(pool)
             },
+            SearchForCardTopOfDeckShuffle => todo!("SearchForCardTopOfDeckShuffle"),
+            TargetPlayerDrawsThreeCardsLosesThreeLife => todo!("TargetPlayerDrawsThreeCardsLosesThreeLife"),
         }
     }
 }
@@ -1175,35 +1232,42 @@ impl State {
     }
 
     fn cast_options(&self, card: Card) -> impl ExactSizeIterator<Item = Ability> {
-        // TODO only provide the options that are castable via the mana_pool on self
-        match card {
-            TheDrossPits
-            | Swamp
-            | BlastZone
-            | MemorialToFolly 
-            | PhyrexianTower => Abilities::Empty,
-            //SignInBlood => {
-                //Abilities::FixedLength(
-                    //vec![
-                        //Ability {
-                            //mana_cost: ManaCost::default(),
-                            //creature_cost: 0,
-                            //effects: vec![Effect::TargerPlayerDrawsTwoCardsLosesTwoLife],
-                        //},
-                    //].into_iter()
-                //)
-            //},
-            _ => {
-                todo!("cast_options for {card:?}");
-            },
+        self.board.cast_options(card)
+    }
+}
+
+struct SpreeIter {
+
+}
+
+impl SpreeIter {
+    fn new(pool: ManaPool, base_cost: ManaCost, options: &[Ability]) -> Self {
+        Self {
+            
         }
     }
 }
 
+impl Iterator for SpreeIter {
+    type Item = Ability;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // FIXME and the size_hint!
+        None
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        // FIXME!
+        (0, Some(0))
+    }
+}
+
+impl ExactSizeIterator for SpreeIter {}
+
 enum Abilities {
     Empty,
     FixedLength(std::vec::IntoIter<Ability>),
-    //Spree(SpreeIter)
+    Spree(SpreeIter)
 }
 
 impl Iterator for Abilities {
@@ -1214,6 +1278,7 @@ impl Iterator for Abilities {
         match self {
             Empty => None,
             FixedLength(ref mut iter) => iter.next(),
+            Spree(ref mut iter) => iter.next(),
         }
     }
 
@@ -1222,6 +1287,7 @@ impl Iterator for Abilities {
         match self {
             Empty => (0, Some(0)),
             FixedLength(ref iter) => iter.size_hint(),
+            Spree(ref iter) => iter.size_hint(),
         }
     }
 }
