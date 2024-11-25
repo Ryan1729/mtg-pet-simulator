@@ -848,19 +848,36 @@ dbg!(&all_mana_abilities);
                 TheDrossPits
                 | Swamp
                 | BlastZone
-                | MemorialToFolly 
+                | MemorialToFolly
                 | PhyrexianTower => Abilities::Empty,
-                //SignInBlood => {
-                    //Abilities::FixedLength(
-                        //vec![
-                            //Ability {
-                                //mana_cost: ManaCost::default(),
-                                //creature_cost: 0,
-                                //effects: vec![Effect::TargetPlayerDrawsTwoCardsLosesTwoLife],
-                            //},
-                        //].into_iter()
-                    //)
-                //},
+                SignInBlood => {
+                    Abilities::FixedLength(
+                        vec![
+                            Ability {
+                                mana_cost: ManaCost {
+                                    black: 2,
+                                    ..ManaCost::default()
+                                },
+                                creature_cost: 0,
+                                effects: vec![Effect::TargetPlayerDrawsTwoCardsLosesTwoLife],
+                            },
+                        ].into_iter()
+                    )
+                },
+                SchemingSymmetry => {
+                    Abilities::FixedLength(
+                        vec![
+                            Ability {
+                                mana_cost: ManaCost {
+                                    black: 1,
+                                    ..ManaCost::default()
+                                },
+                                creature_cost: 0,
+                                effects: vec![Effect::SchemingSymmetry],
+                            },
+                        ].into_iter()
+                    )
+                },
                 InsatiableAvarice => Abilities::Spree(
                     SpreeIter::new(
                         self.mana_pool.clone(),
@@ -888,9 +905,33 @@ dbg!(&all_mana_abilities);
                         ]
                     )
                 ),
-                _ => {
-                    todo!("cast_options for {card:?}");
-                },
+                StarshapeCleric => {
+                    Abilities::FixedLength(
+                        vec![
+                            Ability {
+                                mana_cost: ManaCost {
+                                    generic: 1,
+                                    black: 1,
+                                    ..ManaCost::default()
+                                },
+                                creature_cost: 0,
+                                effects: vec![Effect::HandToBattlefield(StarshapeCleric)],
+                            },
+                            Ability {
+                                mana_cost: ManaCost {
+                                    generic: 3,
+                                    black: 1,
+                                    ..ManaCost::default()
+                                },
+                                creature_cost: 0,
+                                effects: vec![Effect::Offspring(StarshapeCleric)],
+                            },
+                        ].into_iter()
+                    )
+                }
+                //_ => {
+                    //todo!("cast_options for {card:?}");
+                //},
             }
         }
 
@@ -1135,16 +1176,16 @@ impl State {
             let mapped_states = new_states
                 .flat_map(|unmapped_state| {
                     // We don't want all the states between the individual effects!
-                    // But, we do want to allow multiple states to be returned from each 
-                    // stage, in case there are choices as part of them. To summarize, 
-                    // we only want the possible end states after the effect list is done, 
+                    // But, we do want to allow multiple states to be returned from each
+                    // stage, in case there are choices as part of them. To summarize,
+                    // we only want the possible end states after the effect list is done,
                     // but we do want all of them!
                     // Thinking through Insatiable Avarice is probably a good example for this
                     let mut output = vec![unmapped_state];
                     for effect in cast_option.effects.iter() {
-                        output = output.into_iter().map(move |s: State| {
-                            let applied: Result<State, ()> = s.apply_effect(*effect);
-                            applied.unwrap_or(s)
+                        output = output.into_iter().flat_map(move |s: State| {
+                            let applied: Result<std::vec::IntoIter<Self>, ()> = s.apply_effect(*effect);
+                            applied.unwrap_or_else(|_| vec![s].into_iter())
                         }).collect();
                     }
 
@@ -1169,20 +1210,64 @@ enum Effect {
     // TODO? Make a NonEmptyManaPool? Is Add 0 mana something we want to represent?
     AddMana(ManaPool),
     SearchForCardTopOfDeckShuffle,
+    SchemingSymmetry,
+    TargetPlayerDrawsTwoCardsLosesTwoLife,
     TargetPlayerDrawsThreeCardsLosesThreeLife,
+    HandToBattlefield(Card),
+    Offspring(Card),
 }
 
 type EffectError = ();
 
+type CardSet = BTreeSet<Card>;
+
 impl State {
-    fn apply_effect(&self, effect: Effect) -> Result<Self, EffectError> {
+    fn apply_effect(&self, effect: Effect) -> Result<std::vec::IntoIter<Self>, EffectError> {
         use Effect::*;
         match effect {
             AddMana(pool) => {
                 self.with_additional_mana(pool)
+                    .map(|s| vec![s].into_iter())
             },
-            SearchForCardTopOfDeckShuffle => todo!("SearchForCardTopOfDeckShuffle"),
+            SearchForCardTopOfDeckShuffle
+            // SchemingSymmetry isn't meaningfully different agaist a goldfish
+            | SchemingSymmetry => {
+                let mut card_set = CardSet::new();
+
+                for c in self.deck.iter() {
+                    card_set.insert(*c);
+                }
+
+                Ok(
+                    card_set.iter()
+                    .map(|card| {
+                        // In some sense, we should produce states for each possible after doing this.
+                        // But that's intractable, and it seems plausible that doing this will produce
+                        // the same overall answer.
+                        // Until we have evidence against that, we'll proceed with this.
+                        let Some(index) =
+                            self.deck.iter()
+                            .position(|c| c == card) else {
+                                return self.clone();
+                            };
+
+                        let mut deck = self.deck.clone();
+
+                        deck.swap(0, index);
+
+                        Self {
+                            deck,
+                            ..self.clone()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                )
+            },
+            TargetPlayerDrawsTwoCardsLosesTwoLife => todo!("TargetPlayerDrawsTwoCardsLosesTwoLife"),
             TargetPlayerDrawsThreeCardsLosesThreeLife => todo!("TargetPlayerDrawsThreeCardsLosesThreeLife"),
+            HandToBattlefield(card) => todo!("HandToBattlefield(card)"),
+            Offspring(card) => todo!("Offspring(card)"),
         }
     }
 }
@@ -1243,7 +1328,7 @@ struct SpreeIter {
 impl SpreeIter {
     fn new(pool: ManaPool, base_cost: ManaCost, options: &[Ability]) -> Self {
         Self {
-            
+
         }
     }
 }
