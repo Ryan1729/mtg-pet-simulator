@@ -1006,10 +1006,10 @@ dbg!(&all_mana_abilities);
             self.creatures()
         }
 
-        pub fn spend(&self, mana_cost: ManaCost) -> Result<Self, SpendError> {
-            let mana_pool = self.mana_pool.spend(mana_cost)?;
+        pub fn spend(&self, mana_cost: ManaCost) -> Result<impl Iterator<Item = Self> + '_, SpendError> {
+            let mana_pools = self.mana_pool.spend(mana_cost)?;
 
-            Ok(self.with_mana_pool(mana_pool))
+            Ok(mana_pools.map(|mana_pool| self.with_mana_pool(mana_pool)))
         }
 
         pub fn mana_spends(&self) -> impl Iterator<Item = Self> {
@@ -1158,41 +1158,43 @@ impl State {
 
         let cast_options = self.cast_options(card);
 
-        let mut output: Vec<Self> = Vec::with_capacity(cast_options.len());
+        let mut output: Vec<Self> = Vec::with_capacity(/* Not a realy great bound */ cast_options.len());
 
         for cast_option in cast_options {
-            let Ok(new_board) = self.board.spend(cast_option.mana_cost) else {
+            let Ok(new_boards) = self.board.spend(cast_option.mana_cost) else {
                 continue
             };
 
-            let new_state = self.with_board(new_board);
-
-            let Ok(new_states) =
-                new_state
-                    .sacrifice_creatures(cast_option.creature_cost) else {
-                continue
-            };
-
-            let mapped_states = new_states
-                .flat_map(|unmapped_state| {
-                    // We don't want all the states between the individual effects!
-                    // But, we do want to allow multiple states to be returned from each
-                    // stage, in case there are choices as part of them. To summarize,
-                    // we only want the possible end states after the effect list is done,
-                    // but we do want all of them!
-                    // Thinking through Insatiable Avarice is probably a good example for this
-                    let mut output = vec![unmapped_state];
-                    for effect in cast_option.effects.iter() {
-                        output = output.into_iter().flat_map(move |s: State| {
-                            let applied: Result<std::vec::IntoIter<Self>, ()> = s.apply_effect(*effect);
-                            applied.unwrap_or_else(|_| vec![s].into_iter())
-                        }).collect();
-                    }
-
-                    output
-                });
-
-            output.extend(mapped_states);
+            for new_board in new_boards {
+                let new_state = self.with_board(new_board);
+    
+                let Ok(new_states) =
+                    new_state
+                        .sacrifice_creatures(cast_option.creature_cost) else {
+                    continue
+                };
+    
+                let mapped_states = new_states
+                    .flat_map(|unmapped_state| {
+                        // We don't want all the states between the individual effects!
+                        // But, we do want to allow multiple states to be returned from each
+                        // stage, in case there are choices as part of them. To summarize,
+                        // we only want the possible end states after the effect list is done,
+                        // but we do want all of them!
+                        // Thinking through Insatiable Avarice is probably a good example for this
+                        let mut output = vec![unmapped_state];
+                        for effect in cast_option.effects.iter() {
+                            output = output.into_iter().flat_map(move |s: State| {
+                                let applied: Result<std::vec::IntoIter<Self>, ()> = s.apply_effect(*effect);
+                                applied.unwrap_or_else(|_| vec![s].into_iter())
+                            }).collect();
+                        }
+    
+                        output
+                    });
+    
+                output.extend(mapped_states);
+            }
         }
 
         if output.is_empty() {
