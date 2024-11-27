@@ -6,7 +6,7 @@
 use card::Card::{self, *};
 use mana::{ManaCost, ManaPool};
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, BTreeMap, HashSet};
 use std::iter::ExactSizeIterator;
 
 type PermutationNumber = u128;
@@ -171,61 +171,56 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
         },
         MainPhase1 => {
             if state.land_plays > 0 {
-                let mut seen_land = HashSet::with_capacity(state.hand.len());
-                let mut land_indexes = Vec::with_capacity(state.hand.len());
+                let mut land_indexes = BTreeMap::new();
 
                 for (i, card) in state.hand.iter().enumerate() {
-                    if card.is_land() && !seen_land.contains(card) {
-                        land_indexes.push(i);
-                        seen_land.insert(card);
+                    if card.is_land() && !land_indexes.contains_key(card) {
+                        land_indexes.insert(card, i);
                     }
                 }
 
                 // TODO? Is it ever worth doing to not play a land if you can?
-                match land_indexes.len() {
-                    0 => {},
-                    1 => {
-                        let card = state.hand.remove(land_indexes[0]);
-                        state.board = state.board.enter(card);
-                        state.land_plays -= 1;
+                let mut output = Vec::with_capacity(land_indexes.len());
 
-                        one_path_forward!()
-                    }
-                    _ => {
-                        let mut output = Vec::with_capacity(land_indexes.len());
+                for (_key, i) in land_indexes.into_iter().rev() {
+                    let (h, card) = remove(&state.hand, i).expect("land index to be valid");
 
-                        for i in land_indexes.into_iter().rev() {
-                            let (h, card) = remove(&state.hand, i).expect("land index to be valid");
+                    output.push(Ok(State {
+                        hand: h.to_vec(),
+                        board: state.board.enter(card),
+                        land_plays: state.land_plays - 1,
+                        ..state.clone()
+                    }));
+                }
+dbg!(&output);
+                return Box::from(output);
+            }
 
-                            output.push(Ok(State {
-                                hand: h.to_vec(),
-                                board: state.board.enter(card),
-                                land_plays: state.land_plays - 1,
-                                ..state.clone()
-                            }));
-                        }
-
-                        return Box::from(output);
-                    }
+            let mut castable_card_indexes = Vec::with_capacity(state.hand.len());
+            for (card_index, card) in state.hand.iter().enumerate() {
+                if card.is_castable() {
+                    castable_card_indexes.push(card_index);
                 }
             }
 
-            let mut output = Vec::with_capacity(state.hand.len());
+            let mut output = Vec::with_capacity(castable_card_indexes.len());
 
-            for spend_state in state.mana_spends() {
-dbg!(&state, &spend_state);
-                for card_index in 0..spend_state.hand.len() {
-dbg!("attempt_to_cast", spend_state.hand.get(card_index));
-                    match spend_state.attempt_to_cast(card_index) {
-                        Ok(new_states) => {
-                            for new_state in new_states {
-                                output.push(Ok(new_state));
-                            }
-                        },
-                        Err(_) => {}
+            // TODO: We could filter out duplicates, and also use the set 
+            // of cards to restrict the mana_spends we consider, though
+            // that may or may not be faster than trying them all quickly
+            if !castable_card_indexes.is_empty() {
+                for spend_state in state.mana_spends() {
+                    for card_index in &castable_card_indexes {
+                        match spend_state.attempt_to_cast(*card_index) {
+                            Ok(new_states) => {
+                                for new_state in new_states {
+                                    output.push(Ok(new_state));
+                                }
+                            },
+                            Err(_) => {}
+                        }
                     }
                 }
-
             }
 
             // TODO add more possible plays when there are any
@@ -759,12 +754,12 @@ mod board {
 
     fn mana_abilty_subsets(board: &Board) -> ManaAbilitiesSubsets {
         let all_mana_abilities =
-            dbg!(&board.permanents)
+            board.permanents
                 .iter()
                 .enumerate()
                 .flat_map(|(i, p)| p.mana_abilities(board, i))
                 .collect::<Vec<_>>();
-dbg!(&all_mana_abilities);
+
         let len = all_mana_abilities.len();
 
         // If this limit ever gets reached, we can instead use an arbitrary length bitset
