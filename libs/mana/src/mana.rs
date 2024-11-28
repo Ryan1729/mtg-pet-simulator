@@ -20,7 +20,8 @@ pub struct ManaPool {
     pub colorless: ManaAmount,
 }
 
-macro_rules! mp {
+#[macro_export]
+macro_rules! _mp {
     () => {
         $crate::ManaPool::default()
     };
@@ -74,6 +75,8 @@ macro_rules! mp {
         $crate::ManaPool{ colorless: 9, ..$crate::ManaPool::default() }.add(mp!($($tokens)*)).unwrap()
     };
 }
+// Trick to make this usable above the def
+pub use _mp as mp;
 
 pub type SpendError = ();
 

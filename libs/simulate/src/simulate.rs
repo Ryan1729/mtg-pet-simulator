@@ -80,7 +80,6 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
             nth_ordered(deck, n)
         }
     }?;
-    dbg!(&ordered_deck);
 
     let mut states = Vec::with_capacity(64);
 
@@ -205,7 +204,7 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
 
             let mut output = Vec::with_capacity(castable_card_indexes.len());
 
-            // TODO: We could filter out duplicates, and also use the set 
+            // TODO: We could filter out duplicates, and also use the set
             // of cards to restrict the mana_spends we consider, though
             // that may or may not be faster than trying them all quickly
             if !castable_card_indexes.is_empty() {
@@ -466,7 +465,7 @@ mod board {
     // making them fast. So, we expect to want to change the internals
     // later on, without needing to change all the usages of those
     // internals.
-    #[derive(Clone, Debug, Default)]
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
     pub struct Board {
         mana_pool: ManaPool,
         // We suspect we'll want like lands, creatures, etc. as ready to go collections
@@ -820,17 +819,64 @@ mod board {
         }
     }
 
-    type ManaAbilityKeySet = BTreeSet<ManaAbilityKey>;
+    type ManaAbilityCount = u8;
+    type ManaAbilityKeySet = BTreeMap<ManaAbilityKey, ManaAbilityCount>;
 
     fn to_key_set(mana_abilities: &ManaAbilitiesSet) -> ManaAbilityKeySet {
-        mana_abilities.iter()
-            .map(|ability| {
-                ManaAbilityKey {
-                    kind: ability.permanent_kind,
-                    index: ability.ability_index,
-                }
-            })
-            .collect()
+        let mut output = ManaAbilityKeySet::new();
+
+        for ability in mana_abilities.iter() {
+            let key = ManaAbilityKey {
+                kind: ability.permanent_kind,
+                index: ability.ability_index,
+            };
+
+            *output.entry(key).or_insert(0) += 1;
+        }
+
+        output
+    }
+
+    #[cfg(test)]
+    mod to_key_set_works {
+        use super::*;
+        use card::Card::*;
+
+        const SWAMPS: [ManaAbility; 2] =
+        [
+            ManaAbility {
+                kind: ManaAbilityKind::TapForBlack,
+                ability_index: 0,
+                permanent_kind: PermanentKind::Card(
+                    Swamp,
+                ),
+                permanent_index: 0,
+            },
+            ManaAbility {
+                kind: ManaAbilityKind::TapForBlack,
+                ability_index: 0,
+                permanent_kind: PermanentKind::Card(
+                    Swamp,
+                ),
+                permanent_index: 1,
+            },
+        ];
+
+        #[test]
+        fn on_these_examples() {
+            let set_a = ManaAbilitiesSet::from([SWAMPS[0].clone()]);
+            let set_b = ManaAbilitiesSet::from([SWAMPS[1].clone()]);
+            let set_ab = ManaAbilitiesSet::from([SWAMPS[0].clone(), SWAMPS[1].clone()]);
+
+            let key_a = to_key_set(&set_a);
+            let key_b = to_key_set(&set_b);
+            let key_ab = to_key_set(&set_ab);
+
+            // Two instances of the same mana ability should be the same
+            assert_eq!(key_b, key_a);
+            // Two mana abilities should be different than just one.
+            assert_ne!(key_ab, key_a);
+        }
     }
 
     type TapPermanentError = ();
@@ -1002,7 +1048,6 @@ mod board {
         }
 
         pub fn spend(&self, mana_cost: ManaCost) -> Result<impl Iterator<Item = Self> + '_, SpendError> {
-            dbg!(&self.mana_pool, &mana_cost, self.mana_pool.spend(mana_cost).is_ok());
             let mana_pools = self.mana_pool.spend(mana_cost)?;
 
             Ok(mana_pools.map(|mana_pool| self.with_mana_pool(mana_pool)))
@@ -1015,6 +1060,7 @@ mod board {
 
             while let Some(mana_abilities) = all_mana_abilty_subsets.next() {
                 let key = to_key_set(&mana_abilities);
+
                 if output.contains_key(&key) {
                     // Avoid bothering to track identical options
                     // like 6 different orders for 3 Swamps.
@@ -1042,15 +1088,16 @@ mod board {
     mod mana_spends_works {
         use super::*;
         use card::Card::*;
+        use mana::mp;
 
         #[test]
         fn on_a_default_board() {
             let board = Board::default();
 
-            let vec = board.mana_spends().collect::<Vec<_>>();
+            let vec = board.mana_spends().map(|b| b.mana_pool).collect::<Vec<_>>();
 
             // Not spending any mana counts as an option.
-            assert_eq!(vec.len(), 1);
+            assert_eq!(vec, vec![mp!()]);
         }
 
         #[test]
@@ -1061,12 +1108,26 @@ mod board {
 
             assert!(board.permanents.len() > 0, "pre-condition failure");
 
-            let vec = board.mana_spends().collect::<Vec<_>>();
+            let vec = board.mana_spends().map(|b| b.mana_pool).collect::<Vec<_>>();
 
             // We should have the option to not tap the swamp
             // and the option to tap the swamp.
             // This is because we call mana_spends in cases where we might have a 1 drop in hand.
-            assert!(vec.len() >= 2);
+            assert_eq!(vec, vec![mp!(), mp!(B)]);
+        }
+
+        #[test]
+        fn on_two_swamps() {
+            let mut board = Board::default();
+
+            board = board.enter(Swamp);
+            board = board.enter(Swamp);
+
+            assert!(board.permanents.len() >= 2, "pre-condition failure");
+
+            let vec = board.mana_spends().map(|b| b.mana_pool).collect::<Vec<_>>();
+
+            assert_eq!(vec, vec![mp!(), mp!(B), mp!(B B)]);
         }
     }
 }
@@ -1164,13 +1225,13 @@ impl State {
 
             for new_board in new_boards {
                 let new_state = self.with_board(new_board);
-    
+
                 let Ok(new_states) =
                     new_state
                         .sacrifice_creatures(cast_option.creature_cost) else {
                     continue
                 };
-    
+
                 let mapped_states = new_states
                     .flat_map(|unmapped_state| {
                         // We don't want all the states between the individual effects!
@@ -1186,10 +1247,10 @@ impl State {
                                 applied.unwrap_or_else(|_| vec![s].into_iter())
                             }).collect();
                         }
-    
+
                         output
                     });
-    
+
                 output.extend(mapped_states);
             }
         }
