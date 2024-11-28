@@ -192,7 +192,7 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
                         ..state.clone()
                     }));
                 }
-dbg!(&output);
+//dbg!(&output);
                 return Box::from(output);
             }
 
@@ -339,7 +339,7 @@ mod board {
         }
 
         pub fn untap(&mut self) {
-            self.is_tapped = true;
+            self.is_tapped = false;
         }
     }
 
@@ -1002,6 +1002,7 @@ mod board {
         }
 
         pub fn spend(&self, mana_cost: ManaCost) -> Result<impl Iterator<Item = Self> + '_, SpendError> {
+            dbg!(&self.mana_pool, &mana_cost, self.mana_pool.spend(mana_cost).is_ok());
             let mana_pools = self.mana_pool.spend(mana_cost)?;
 
             Ok(mana_pools.map(|mana_pool| self.with_mana_pool(mana_pool)))
@@ -1156,6 +1157,7 @@ impl State {
         let mut output: Vec<Self> = Vec::with_capacity(/* Not a realy great bound */ cast_options.len());
 
         for cast_option in cast_options {
+            // TODO: Why do we seem to never get past this `continue`?
             let Ok(new_boards) = self.board.spend(cast_option.mana_cost) else {
                 continue
             };
