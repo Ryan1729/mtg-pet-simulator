@@ -19,9 +19,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "permanent"
+version = "0.1.0"
+dependencies = [
+ "card",
+]
+
+[[package]]
 name = "simulate"
 version = "0.1.0"
 dependencies = [
  "card",
  "mana",
+ "permanent",
 ]

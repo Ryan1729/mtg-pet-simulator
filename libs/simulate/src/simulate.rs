@@ -5,6 +5,7 @@
 
 use card::Card::{self, *};
 use mana::{ManaCost, ManaPool};
+use permanent::Permanent;
 
 use std::collections::{BTreeSet, BTreeMap, HashSet};
 use std::iter::ExactSizeIterator;
@@ -142,33 +143,8 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
         }
     }
 
-    match state.step {
-        Untap => {
-            for permanent in state.board.permanents_mut() {
-                permanent.untap();
-            }
-
-            state.step = Draw;
-
-            one_path_forward!()
-        }
-        Draw => {
-            if let Some((card, d)) = draw(state.deck) {
-                state.deck = d;
-                state.hand.push(card);
-                state.step = MainPhase1;
-
-                one_path_forward!()
-            } else {
-                return Box::from([
-                    Err(OutcomeAt {
-                        outcome: Lose,
-                        at: state.turn_number,
-                    })
-                ]);
-            }
-        },
-        MainPhase1 => {
+    macro_rules! main_phase {
+        ($next_step: ident) => ({
             if state.land_plays > 0 {
                 let mut land_indexes = BTreeMap::new();
 
@@ -186,12 +162,12 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
 
                     output.push(Ok(State {
                         hand: h.to_vec(),
-                        board: state.board.enter(card),
+                        board: state.board.enter(Permanent::card(card)),
                         land_plays: state.land_plays - 1,
                         ..state.clone()
                     }));
                 }
-//dbg!(&output);
+
                 return Box::from(output);
             }
 
@@ -224,9 +200,46 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
 
             // TODO add more possible plays when there are any
 
-            state.step = End;
+            state.step = $next_step;
             output.push(Ok(state));
             return Box::from(output);
+        })
+    }
+
+    match state.step {
+        Untap => {
+            for permanent in state.board.permanents_mut() {
+                *permanent = permanent.untapped();
+            }
+
+            state.step = Draw;
+
+            one_path_forward!()
+        }
+        Draw => {
+            if let Some((card, d)) = draw(state.deck) {
+                state.deck = d;
+                state.hand.push(card);
+                state.step = MainPhase1;
+
+                one_path_forward!()
+            } else {
+                return Box::from([
+                    Err(OutcomeAt {
+                        outcome: Lose,
+                        at: state.turn_number,
+                    })
+                ]);
+            }
+        },
+        MainPhase1 => {
+            main_phase!(Combat)
+        }
+        Combat => {
+            todo!("Combat")
+        }
+        MainPhase2 => {
+            main_phase!(End)
         }
         End => {
             state.turn_number += 1;
@@ -301,164 +314,11 @@ const INDEX_SET_MAX_ELEMENTS: usize = IndexSet::BITS as _;
 mod board {
     use card::Card;
     use mana::{ManaCost, ManaPool, SpendError};
+    use permanent::{Permanent, PermanentKind};
 
     use super::{Ability, Abilities, Effect, IndexSet, INDEX_SET_MAX_ELEMENTS, SpreeIter};
 
     use std::collections::{BTreeMap, BTreeSet};
-
-
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-    enum PermanentKind {
-        Card(Card),
-    }
-
-    type IsTapped = bool;
-    //type IsFlipped = bool;
-    //type IsFaceDown = bool;
-    //type IsPhasedOut = bool;
-
-    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-    pub struct Permanent {
-        kind: PermanentKind,
-        // "CR 110.6. A permanent’s status is its physical state. There are four status categories, each of which has two
-        // possible values: tapped/untapped, flipped/unflipped, face up/face down, and phased in/phased out.
-        // Each permanent always has one of these values for each of these categories."
-        is_tapped: IsTapped,
-        //is_flipped: IsFlipped,
-        //is_face_down: IsFaceDown,
-        //is_phased_out: IsPhasedOut,
-    }
-
-    impl Permanent {
-        pub fn is_a_creature(&self) -> bool {
-            use PermanentKind::*;
-            match self.kind {
-                Card(card) => card.is_a_creature(),
-            }
-        }
-
-        pub fn untap(&mut self) {
-            self.is_tapped = false;
-        }
-    }
-
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-    enum ManaAbilityKindSpec {
-        //TapForWhite,
-        //TapForBlue,
-        TapForBlack,
-        //TapForRed,
-        //TapForGreen,
-        TapForColorless,
-        SacrificeCreatureForTwoBlack,
-    }
-    use ManaAbilityKindSpec::*;
-
-    pub type CreatureIndex = usize;
-
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-    enum ManaAbilityKind {
-        //TapForWhite,
-        //TapForBlue,
-        TapForBlack,
-        //TapForRed,
-        //TapForGreen,
-        TapForColorless,
-        SacrificeCreatureForTwoBlack(CreatureIndex),
-    }
-
-    static NO_MANA_ABILITIES: &[ManaAbilityKindSpec] = &[];
-    static TAP_FOR_BLACK: &[ManaAbilityKindSpec] = &[TapForBlack];
-    static PHYREXIAN_TOWER_ABILITIES: &[ManaAbilityKindSpec] = &[TapForColorless, SacrificeCreatureForTwoBlack];
-    static TAP_FOR_COLORLESS: &[ManaAbilityKindSpec] = &[TapForColorless];
-
-    fn mana_ability_kind_specs_for_card(card: Card) -> impl Iterator<Item = &'static ManaAbilityKindSpec> {
-        use Card::*;
-        match card {
-            // Plains
-            // Island
-            Swamp
-            // Mountian
-            // Forest
-            | HagraMauling
-            | MemorialToFolly
-            | TheDrossPits => TAP_FOR_BLACK.into_iter(),
-            PhyrexianTower => PHYREXIAN_TOWER_ABILITIES.into_iter(),
-            BlastZone
-            | SceneOfTheCrime => TAP_FOR_COLORLESS.into_iter(),
-            InsatiableAvarice
-            | SchemingSymmetry
-            | FeedTheSwarm
-            | SignInBlood
-            | StarscapeCleric
-            | WishclawTalisman
-            | CeaseAndDesist
-            | HowlingMine
-            | JetMedallion
-            | MindStone
-            | GrimTutor
-            | HoodedBlightfang
-            | NighthawkScavenger
-            | ToxicDeluge
-            | VitoThornOfTheDuskRose
-            | BakeIntoAPie
-            | EnduringTenacity
-            | SheoldredTheApocalypse
-            | ExquisiteBlood => NO_MANA_ABILITIES.into_iter(),
-        }
-    }
-
-    impl Permanent {
-        fn mana_abilities<'board>(&self, board: &'board Board, permanent_index: PermanentIndex) -> impl Iterator<Item = ManaAbility> + 'board {
-            let permanent_kind = self.kind.clone();
-
-            match self.kind {
-                PermanentKind::Card(card) =>
-                    mana_ability_kind_specs_for_card(card)
-                        .enumerate()
-                        .flat_map(move |(ability_index, kind_spec)|
-                            match kind_spec {
-                                //TapForWhite => ManaAbilityKind::TapForWhite,
-                                //TapForBlue => ManaAbilityKind::TapForBlue,
-                                TapForBlack => vec![
-                                    ManaAbility{
-                                        kind: ManaAbilityKind::TapForBlack,
-                                        permanent_index,
-                                        permanent_kind: permanent_kind.clone(),
-                                        ability_index: ability_index.try_into().unwrap(),
-                                    }
-                                ].into_iter(),
-                                //TapForRed => ManaAbilityKind::TapForRed,
-                                //TapForGreen => ManaAbilityKind::TapForGreen,
-                                TapForColorless => vec![
-                                    ManaAbility{
-                                        kind: ManaAbilityKind::TapForColorless,
-                                        permanent_index,
-                                        permanent_kind: permanent_kind.clone(),
-                                        ability_index: ability_index.try_into().unwrap(),
-                                    }
-                                ].into_iter(),
-                                SacrificeCreatureForTwoBlack => {
-                                    board.sacrificeable_creatures()
-                                        .iter()
-                                        .map(|index| {
-                                            ManaAbility{
-                                                kind: ManaAbilityKind::SacrificeCreatureForTwoBlack(*index),
-                                                permanent_index,
-                                                permanent_kind: permanent_kind.clone(),
-                                                ability_index: ability_index.try_into().unwrap(),
-                                            }
-                                        })
-                                        // TODO? Avoid this allocation that's here to avoid dealing with
-                                        // the closure type?
-                                        .collect::<Vec<_>>()
-                                        .into_iter()
-                                },
-                            }
-                        ),
-            }
-        }
-    }
 
     // Keep things private because we suspect we'll want lots of different
     // ways to query what is on the board, and that we will care about
@@ -517,14 +377,11 @@ mod board {
         }
 
         #[must_use]
-        pub fn enter(&self, card: Card) -> Self {
+        pub fn enter(&self, permanent: Permanent) -> Self {
             Board {
                 permanents: push(
                     &self.permanents,
-                    Permanent{
-                        kind: PermanentKind::Card(card),
-                        is_tapped: Card::enters_tapped(card),
-                    }
+                    permanent,
                 ),
                 ..self.clone()
             }
@@ -534,6 +391,127 @@ mod board {
     /// The index of the permanent on the board
     // TODO? Make this a generational index?
     pub type PermanentIndex = usize;
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    enum ManaAbilityKindSpec {
+        //TapForWhite,
+        //TapForBlue,
+        TapForBlack,
+        //TapForRed,
+        //TapForGreen,
+        TapForColorless,
+        SacrificeCreatureForTwoBlack,
+    }
+    use ManaAbilityKindSpec::*;
+    
+    pub type CreatureIndex = usize;
+    
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum ManaAbilityKind {
+        //TapForWhite,
+        //TapForBlue,
+        TapForBlack,
+        //TapForRed,
+        //TapForGreen,
+        TapForColorless,
+        SacrificeCreatureForTwoBlack(CreatureIndex),
+    }
+    
+    static NO_MANA_ABILITIES: &[ManaAbilityKindSpec] = &[];
+    static TAP_FOR_BLACK: &[ManaAbilityKindSpec] = &[TapForBlack];
+    static PHYREXIAN_TOWER_ABILITIES: &[ManaAbilityKindSpec] = &[TapForColorless, SacrificeCreatureForTwoBlack];
+    static TAP_FOR_COLORLESS: &[ManaAbilityKindSpec] = &[TapForColorless];
+    
+    fn mana_ability_kind_specs_for_card(card: Card) -> impl Iterator<Item = &'static ManaAbilityKindSpec> {
+        use Card::*;
+        match card {
+            // Plains
+            // Island
+            Swamp
+            // Mountian
+            // Forest
+            | HagraMauling
+            | MemorialToFolly
+            | TheDrossPits => TAP_FOR_BLACK.into_iter(),
+            PhyrexianTower => PHYREXIAN_TOWER_ABILITIES.into_iter(),
+            BlastZone
+            | SceneOfTheCrime => TAP_FOR_COLORLESS.into_iter(),
+            InsatiableAvarice
+            | SchemingSymmetry
+            | FeedTheSwarm
+            | SignInBlood
+            | StarscapeCleric
+            | WishclawTalisman
+            | CeaseAndDesist
+            | HowlingMine
+            | JetMedallion
+            | MindStone
+            | GrimTutor
+            | HoodedBlightfang
+            | NighthawkScavenger
+            | ToxicDeluge
+            | VitoThornOfTheDuskRose
+            | BakeIntoAPie
+            | EnduringTenacity
+            | SheoldredTheApocalypse
+            | ExquisiteBlood => NO_MANA_ABILITIES.into_iter(),
+        }
+    }
+    
+    fn mana_abilities<'board>(
+        board: &'board Board,
+        permanent_index: PermanentIndex,
+        permanent: &Permanent
+    ) -> impl Iterator<Item = ManaAbility> + 'board {
+        let permanent_kind = permanent.kind();
+
+        match permanent_kind {
+            PermanentKind::Card(card)
+            | PermanentKind::Token(card) =>
+                mana_ability_kind_specs_for_card(card)
+                    .enumerate()
+                    .flat_map(move |(ability_index, kind_spec)|
+                        match kind_spec {
+                            //TapForWhite => ManaAbilityKind::TapForWhite,
+                            //TapForBlue => ManaAbilityKind::TapForBlue,
+                            TapForBlack => vec![
+                                ManaAbility{
+                                    kind: ManaAbilityKind::TapForBlack,
+                                    permanent_index,
+                                    permanent_kind: permanent_kind.clone(),
+                                    ability_index: ability_index.try_into().unwrap(),
+                                }
+                            ].into_iter(),
+                            //TapForRed => ManaAbilityKind::TapForRed,
+                            //TapForGreen => ManaAbilityKind::TapForGreen,
+                            TapForColorless => vec![
+                                ManaAbility{
+                                    kind: ManaAbilityKind::TapForColorless,
+                                    permanent_index,
+                                    permanent_kind: permanent_kind.clone(),
+                                    ability_index: ability_index.try_into().unwrap(),
+                                }
+                            ].into_iter(),
+                            SacrificeCreatureForTwoBlack => {
+                                board.sacrificeable_creatures()
+                                    .iter()
+                                    .map(|index| {
+                                        ManaAbility{
+                                            kind: ManaAbilityKind::SacrificeCreatureForTwoBlack(*index),
+                                            permanent_index,
+                                            permanent_kind: permanent_kind.clone(),
+                                            ability_index: ability_index.try_into().unwrap(),
+                                        }
+                                    })
+                                    // TODO? Avoid this allocation that's here to avoid dealing with
+                                    // the closure type?
+                                    .collect::<Vec<_>>()
+                                    .into_iter()
+                            },
+                        }
+                    ),
+        }
+    }
 
     /// The index of the mana abilty on the given permanent
     type ManaAbilityIndex = u8;
@@ -756,7 +734,7 @@ mod board {
             board.permanents
                 .iter()
                 .enumerate()
-                .flat_map(|(i, p)| p.mana_abilities(board, i))
+                .flat_map(|(i, p)| mana_abilities(board, i, p))
                 .collect::<Vec<_>>();
 
         let len = all_mana_abilities.len();
@@ -802,13 +780,15 @@ mod board {
 
     #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
     enum ManaAbilityKeyKind {
-        Card(Card)
+        Card(Card),
+        Token(Card),
     }
 
     impl From<&PermanentKind> for ManaAbilityKeyKind{
         fn from(kind: &PermanentKind) -> Self {
             match kind {
                 PermanentKind::Card(card) => Self::Card(*card),
+                PermanentKind::Token(card) => Self::Token(*card),
             }
         }
     }
@@ -1007,17 +987,14 @@ mod board {
         /// no permanent at that index.
         fn tap_permanent_at(&self, permanent_index: PermanentIndex) -> Result<Self, TapPermanentError> {
             if let Some(old) = self.permanents.get(permanent_index) {
-                if old.is_tapped {
+                if old.is_tapped() {
                     Err(())
                 } else {
                     Ok(Self {
                         permanents: set_at(
                             &self.permanents,
                             permanent_index,
-                            Permanent {
-                                is_tapped: true,
-                                ..old.clone()
-                            },
+                            old.tapped(),
                         ),
                         ..self.clone()
                     })
@@ -1104,7 +1081,7 @@ mod board {
         fn on_a_single_swamp() {
             let mut board = Board::default();
 
-            board = board.enter(Swamp);
+            board = board.enter(Permanent::card(Swamp));
 
             assert!(board.permanents.len() > 0, "pre-condition failure");
 
@@ -1120,8 +1097,8 @@ mod board {
         fn on_two_swamps() {
             let mut board = Board::default();
 
-            board = board.enter(Swamp);
-            board = board.enter(Swamp);
+            board = board.enter(Permanent::card(Swamp));
+            board = board.enter(Permanent::card(Swamp));
 
             assert!(board.permanents.len() >= 2, "pre-condition failure");
 
@@ -1141,8 +1118,8 @@ enum Step {
     //Upkeep,
     Draw,
     MainPhase1,
-    //Combat, // TODO? Split this up if needed
-    //MainPhase2,
+    Combat, // TODO? Split this up if needed
+    MainPhase2,
     End,
 }
 use Step::*;
@@ -1166,6 +1143,8 @@ enum AttemptToCastError {
     NotEnoughMana,
 }
 
+type Life = i16;
+
 #[derive(Clone, Debug)]
 struct State {
     hand: Hand,
@@ -1174,6 +1153,7 @@ struct State {
     land_plays: LandPlays,
     step: Step,
     turn_number: TurnNumber,
+    //opponent_life: Life,
 }
 
 impl State {
@@ -1326,8 +1306,30 @@ impl State {
             },
             TargetPlayerDrawsTwoCardsLosesTwoLife => todo!("TargetPlayerDrawsTwoCardsLosesTwoLife"),
             TargetPlayerDrawsThreeCardsLosesThreeLife => todo!("TargetPlayerDrawsThreeCardsLosesThreeLife"),
-            HandToBattlefield(card) => todo!("HandToBattlefield(card)"),
-            Offspring(card) => todo!("Offspring(card)"),
+            HandToBattlefield(card) => {
+                let index = self.hand.iter().position(|c| c == &card).ok_or(())?;
+
+                let (hand, removed) = remove(&self.hand, index).ok_or(())?;
+
+                Ok(vec![Self {
+                    hand: hand.to_vec(), 
+                    board: self.board.enter(Permanent::card(removed)),
+                    ..self.clone()
+                }].into_iter())
+            },
+            Offspring(card) => {
+                let index = self.hand.iter().position(|c| c == &card).ok_or(())?;
+
+                let (hand, removed) = remove(&self.hand, index).ok_or(())?;
+
+                let token = Permanent::token_of(card).with_p_t(1, 1);
+
+                Ok(vec![Self {
+                    hand: hand.to_vec(), 
+                    board: self.board.enter(Permanent::card(removed)).enter(token),
+                    ..self.clone()
+                }].into_iter())
+            },
         }
     }
 }
@@ -1341,7 +1343,7 @@ struct Ability {
 }
 
 impl State {
-    #[allow(unused)] // We expect this to be used event
+    #[allow(unused)] // We expect this to be used eventually
     fn activated_abilities(&self, index: board::PermanentIndex) -> impl ExactSizeIterator<Item = Ability> {
         let Some(card) = todo!() else {
             return Abilities::Empty
@@ -1473,7 +1475,6 @@ impl LengthNIndexSubsets {
 
     fn advance(&mut self) {
         loop {
-            dbg!(self.fully_advanced(), self.index_set, self.index_set.count_ones() != self.target_length as u32);
             if self.fully_advanced() {
                 self.last_advance_was_skipped = true;
                 return

@@ -13,3 +13,6 @@ path = "../card"
 
 [dependencies.mana]
 path = "../mana"
+
+[dependencies.permanent]
+path = "../permanent"
