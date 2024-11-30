@@ -5,7 +5,7 @@
 
 use card::Card::{self, *};
 use mana::{ManaCost, ManaPool};
-use permanent::Permanent;
+use permanent::{Permanent, TurnNumber};
 
 use std::collections::{BTreeSet, BTreeMap, HashSet};
 use std::iter::ExactSizeIterator;
@@ -108,6 +108,7 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
             turn_number: 0,
             step: Step::default(),
             land_plays: INITIAL_LAND_PLAYS,
+            opponents_life: INITIAL_LIFE,
         }
     );
 
@@ -143,8 +144,24 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
         }
     }
 
+    macro_rules! check_state_based_actions {
+        () => {
+            // TODO probably some fiddly rules about who the active player is?
+            if state.opponents_life <= 0 {
+                return Box::from([
+                    Err(OutcomeAt {
+                        outcome: Win,
+                        at: state.turn_number,
+                    })
+                ]);
+            }
+        }
+    }
+
     macro_rules! main_phase {
         ($next_step: ident) => ({
+            check_state_based_actions!();
+
             if state.land_plays > 0 {
                 let mut land_indexes = BTreeMap::new();
 
@@ -162,7 +179,7 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
 
                     output.push(Ok(State {
                         hand: h.to_vec(),
-                        board: state.board.enter(Permanent::card(card)),
+                        board: state.board.enter(Permanent::card(card, state.turn_number)),
                         land_plays: state.land_plays - 1,
                         ..state.clone()
                     }));
@@ -198,6 +215,20 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
                 }
             }
 
+            let mut saw_c = false;
+            for r in &mut output {
+                if let Ok(s) = r {
+                    if let Some(c) = s.board.permanents_mut().into_iter().filter(|p| p.is_a_creature()).next() {
+                        dbg!(c);
+                        saw_c = true;
+                    }
+                }
+            }
+            if !saw_c {
+                dbg!("no creatures");
+            }
+            
+
             // TODO add more possible plays when there are any
 
             state.step = $next_step;
@@ -208,6 +239,8 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
 
     match state.step {
         Untap => {
+            check_state_based_actions!();
+
             for permanent in state.board.permanents_mut() {
                 *permanent = permanent.untapped();
             }
@@ -217,6 +250,8 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
             one_path_forward!()
         }
         Draw => {
+            check_state_based_actions!();
+
             if let Some((card, d)) = draw(state.deck) {
                 state.deck = d;
                 state.hand.push(card);
@@ -233,15 +268,40 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
             }
         },
         MainPhase1 => {
-            main_phase!(Combat)
+            main_phase!(CombatDamage)
         }
-        Combat => {
-            todo!("Combat")
+        CombatDamage => {
+            check_state_based_actions!();
+
+            // For now, since we're only supporting Goldfish, we can get away with just always attacking, and not
+            // implementing blocking. Thus, we can tap stuff here, even though it should be done in the declare
+            // attackers step.
+            let attackers = state.board.possible_attackers(state.turn_number);
+
+            let mut total_power = 0;
+
+            for &index in attackers.into_iter() {
+                let attacker = state.board.permanent_mut(index).expect("attacker index was bad");
+                *attacker = attacker.tapped();
+
+                let power = attacker.power().expect("attacker had no power");
+                total_power += power;
+            }
+
+            state.opponents_life = state.opponents_life.saturating_sub(total_power.into());
+
+            check_state_based_actions!();
+
+            state.step = MainPhase2;
+
+            one_path_forward!()
         }
         MainPhase2 => {
             main_phase!(End)
         }
         End => {
+            check_state_based_actions!();
+
             state.turn_number += 1;
             state.step = Step::default();
             state.land_plays = INITIAL_LAND_PLAYS;
@@ -305,16 +365,13 @@ mod push_works {
     }
 }
 
-/// 64k turns ought to be enough for anybody!
-type TurnNumber = u16;
-
 type IndexSet = u128;
 const INDEX_SET_MAX_ELEMENTS: usize = IndexSet::BITS as _;
 
 mod board {
     use card::Card;
     use mana::{ManaCost, ManaPool, SpendError};
-    use permanent::{Permanent, PermanentKind};
+    use permanent::{Permanent, PermanentKind, TurnNumber};
 
     use super::{Ability, Abilities, Effect, IndexSet, INDEX_SET_MAX_ELEMENTS, SpreeIter};
 
@@ -354,8 +411,12 @@ mod board {
     }
 
     impl Board {
-        pub fn permanent(&mut self, index: PermanentIndex) -> Option<&Permanent> {
+        pub fn permanent(&self, index: PermanentIndex) -> Option<&Permanent> {
             self.permanents.get(index)
+        }
+
+        pub fn permanent_mut(&mut self, index: PermanentIndex) -> Option<&mut Permanent> {
+            self.permanents.get_mut(index)
         }
 
         pub fn permanents_mut(&mut self) -> impl Iterator<Item = &mut Permanent> {
@@ -1018,6 +1079,20 @@ mod board {
             output.into()
         }
 
+        pub fn possible_attackers(&self, current: TurnNumber) -> Box<[PermanentIndex]> {
+            let len = self.permanents.len();
+
+            let mut output = Vec::with_capacity(len / 2);
+
+            for i in 0..len {
+                if self.permanents[i].can_attack(current) {
+                    output.push(i);
+                }
+            }
+
+            output.into()
+        }
+
         pub fn sacrificeable_creatures(&self) -> Box<[PermanentIndex]> {
             // There are creatures that can't be sacrificed, and effects like "can't cause you to sacrifice permanents".
             // So this won't necessarily always be just all creatures
@@ -1067,6 +1142,8 @@ mod board {
         use card::Card::*;
         use mana::mp;
 
+        const TURN_NUMBER: TurnNumber = 0;
+
         #[test]
         fn on_a_default_board() {
             let board = Board::default();
@@ -1081,7 +1158,7 @@ mod board {
         fn on_a_single_swamp() {
             let mut board = Board::default();
 
-            board = board.enter(Permanent::card(Swamp));
+            board = board.enter(Permanent::card(Swamp, TURN_NUMBER));
 
             assert!(board.permanents.len() > 0, "pre-condition failure");
 
@@ -1097,8 +1174,8 @@ mod board {
         fn on_two_swamps() {
             let mut board = Board::default();
 
-            board = board.enter(Permanent::card(Swamp));
-            board = board.enter(Permanent::card(Swamp));
+            board = board.enter(Permanent::card(Swamp, TURN_NUMBER));
+            board = board.enter(Permanent::card(Swamp, TURN_NUMBER));
 
             assert!(board.permanents.len() >= 2, "pre-condition failure");
 
@@ -1118,7 +1195,11 @@ enum Step {
     //Upkeep,
     Draw,
     MainPhase1,
-    Combat, // TODO? Split this up if needed
+    //BeginningOfCombat,
+    //DeclareAttackers,
+    //DeclareBlockers, 
+    CombatDamage, 
+    //EndOfCombat
     MainPhase2,
     End,
 }
@@ -1145,6 +1226,8 @@ enum AttemptToCastError {
 
 type Life = i16;
 
+const INITIAL_LIFE: Life = 20;
+
 #[derive(Clone, Debug)]
 struct State {
     hand: Hand,
@@ -1153,7 +1236,7 @@ struct State {
     land_plays: LandPlays,
     step: Step,
     turn_number: TurnNumber,
-    //opponent_life: Life,
+    opponents_life: Life,
 }
 
 impl State {
@@ -1198,7 +1281,6 @@ impl State {
         let mut output: Vec<Self> = Vec::with_capacity(/* Not a realy great bound */ cast_options.len());
 
         for cast_option in cast_options {
-            // TODO: Why do we seem to never get past this `continue`?
             let Ok(new_boards) = self.board.spend(cast_option.mana_cost) else {
                 continue
             };
@@ -1313,7 +1395,7 @@ impl State {
 
                 Ok(vec![Self {
                     hand: hand.to_vec(), 
-                    board: self.board.enter(Permanent::card(removed)),
+                    board: self.board.enter(Permanent::card(removed, self.turn_number)),
                     ..self.clone()
                 }].into_iter())
             },
@@ -1322,11 +1404,11 @@ impl State {
 
                 let (hand, removed) = remove(&self.hand, index).ok_or(())?;
 
-                let token = Permanent::token_of(card).with_p_t(1, 1);
+                let token = Permanent::token_of(card, self.turn_number).with_p_t(1, 1);
 
                 Ok(vec![Self {
                     hand: hand.to_vec(), 
-                    board: self.board.enter(Permanent::card(removed)).enter(token),
+                    board: self.board.enter(Permanent::card(removed, self.turn_number)).enter(token),
                     ..self.clone()
                 }].into_iter())
             },
@@ -2067,7 +2149,6 @@ mod nth_factorial_number_works {
         // compute factorial numbers
         fact.push(1u128);
         for i in 1..len {
-            dbg!(fact[i - 1], i);
             fact.push(fact[i - 1] * PermutationNumber::try_from(i).map_err(|_| UsizeTooBig)?);
         }
         assert_eq!(fact.len(), len);
@@ -2081,8 +2162,6 @@ mod nth_factorial_number_works {
             perm.push(div.try_into().map_err(|_| FactorialDigitTooBig)?);
             n = n % fact[len - 1 - i];
         }
-
-        dbg!(&perm);
 
         Ok(perm.into_boxed_slice())
     }

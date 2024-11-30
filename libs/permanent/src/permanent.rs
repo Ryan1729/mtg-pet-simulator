@@ -1,7 +1,7 @@
-use card::{Card};
+use card::{Card, Power, Toughness};
 
-pub type Power = u8;
-pub type Toughness = u8;
+/// 64k turns ought to be enough for anybody!
+pub type TurnNumber = u16;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PermanentKind {
@@ -26,24 +26,28 @@ pub struct Permanent {
     //is_phased_out: IsPhasedOut,
     override_base_power: Option<Power>,
     override_base_toughness: Option<Toughness>,
+    /// Used to calculate summoning sickness.
+    entered: TurnNumber,
 }
 
 impl Permanent {
-    pub fn card(card: Card) -> Self {
+    pub fn card(card: Card, entered: TurnNumber) -> Self {
         Self {
             kind: PermanentKind::Card(card),
             is_tapped: Card::enters_tapped(card),
             override_base_power: <_>::default(),
             override_base_toughness: <_>::default(),
+            entered,
         }
     }
 
-    pub fn token_of(card: Card) -> Self {
+    pub fn token_of(card: Card, entered: TurnNumber) -> Self {
         Self {
             kind: PermanentKind::Token(card),
             is_tapped: Card::enters_tapped(card),
             override_base_power: <_>::default(),
             override_base_toughness: <_>::default(),
+            entered,
         }
     }
 
@@ -55,6 +59,16 @@ impl Permanent {
         }
     }
 
+    pub fn power(&self) -> Option<Power> {
+        use PermanentKind::*;
+        self.override_base_power.or_else(|| { 
+            match self.kind {
+                Card(card) => card.raw_power(),
+                Token(card) => card.raw_power(),
+            }
+        })
+    }
+
     pub fn is_a_creature(&self) -> bool {
         use PermanentKind::*;
         // If we ever implement stuff like turning intoa treasure token we'll need to change this
@@ -62,6 +76,10 @@ impl Permanent {
             Card(card) => card.is_a_creature(),
             Token(card) => card.is_a_creature(),
         }
+    }
+
+    pub fn can_attack(&self, current: TurnNumber) -> bool {
+        self.is_a_creature() && (/* self.has_haste() || */ self.entered < current)
     }
 
     pub fn kind(&self) -> PermanentKind {

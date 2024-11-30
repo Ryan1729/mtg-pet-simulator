@@ -1,3 +1,6 @@
+pub type Power = u8;
+pub type Toughness = u8;
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Card {
     // Plains
@@ -197,5 +200,64 @@ mod card_predicates_work {
         assert!(card.is_land(), "card.is_land()");
         assert!(!card.is_a_creature(), "!card.is_a_creature()");
         assert!(card.enters_tapped(), "card.enters_tapped()");
+    }
+}
+
+impl Card {
+    /// Returns the power of a card as it would be in the hand, if there is any.
+    pub fn raw_power(&self) -> Option<Power> {
+        use Card::*;
+        match self {
+            // Plains
+            // Island
+            Swamp
+            // Mountian
+            // Forest
+            | HagraMauling
+            | ExquisiteBlood
+            | MemorialToFolly
+            | PhyrexianTower
+            | TheDrossPits
+            | BlastZone
+            | SceneOfTheCrime 
+            | InsatiableAvarice
+            | SchemingSymmetry
+            | FeedTheSwarm
+            | SignInBlood
+            | WishclawTalisman
+            | CeaseAndDesist
+            | HowlingMine
+            | JetMedallion
+            | MindStone
+            | GrimTutor
+            | ToxicDeluge
+            | BakeIntoAPie
+            | EnduringTenacity => None,
+            StarscapeCleric => Some(2),
+            HoodedBlightfang => Some(1),
+            NighthawkScavenger => Some(1),
+            VitoThornOfTheDuskRose => Some(1),
+            SheoldredTheApocalypse  => Some(4),
+        }
+    }
+}
+
+#[cfg(test)]
+mod raw_power_works {
+    use super::*;
+    use super::Card::*;
+
+    #[test]
+    fn on_hagra_mauling() {
+        let card = HagraMauling;
+
+        assert_eq!(card.raw_power(), None);
+    }
+
+    #[test]
+    fn on_starscape_cleric() {
+        let card = StarscapeCleric;
+
+        assert_eq!(card.raw_power(), Some(2));
     }
 }
