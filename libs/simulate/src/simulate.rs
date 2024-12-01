@@ -188,46 +188,9 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
                 return Box::from(output);
             }
 
-            let mut castable_card_indexes = Vec::with_capacity(state.hand.len());
-            for (card_index, card) in state.hand.iter().enumerate() {
-                if card.is_castable() {
-                    castable_card_indexes.push(card_index);
-                }
-            }
+            let mut output = Vec::with_capacity(state.hand.len());
 
-            let mut output = Vec::with_capacity(castable_card_indexes.len());
-
-            // TODO: We could filter out duplicates, and also use the set
-            // of cards to restrict the mana_spends we consider, though
-            // that may or may not be faster than trying them all quickly
-            if !castable_card_indexes.is_empty() {
-                for spend_state in state.mana_spends() {
-                    for card_index in &castable_card_indexes {
-                        match spend_state.attempt_to_cast(*card_index) {
-                            Ok(new_states) => {
-                                for new_state in new_states {
-                                    output.push(Ok(new_state));
-                                }
-                            },
-                            Err(_) => {}
-                        }
-                    }
-                }
-            }
-
-            let mut saw_c = false;
-            for r in &mut output {
-                if let Ok(s) = r {
-                    if let Some(c) = s.board.permanents_mut().into_iter().filter(|p| p.is_a_creature()).next() {
-                        dbg!(c);
-                        saw_c = true;
-                    }
-                }
-            }
-            if !saw_c {
-                dbg!("no creatures");
-            }
-            
+            state.add_casting_states(&mut output);
 
             // TODO add more possible plays when there are any
 
@@ -1342,6 +1305,45 @@ enum Effect {
 type EffectError = ();
 
 type CardSet = BTreeSet<Card>;
+
+impl State {
+    fn add_casting_states(&self, output: &mut Vec<Result<Self, OutcomeAt>>) {
+        let mut castable_card_indexes = Vec::with_capacity(self.hand.len());
+        for (card_index, card) in self.hand.iter().enumerate() {
+            if card.is_castable() {
+                castable_card_indexes.push(card_index);
+            }
+        }
+
+        // TODO: We could filter out duplicates, and also use the set
+        // of cards to restrict the mana_spends we consider, though
+        // that may or may not be faster than trying them all quickly
+        if !castable_card_indexes.is_empty() {
+            for spend_state in self.mana_spends() {
+                for card_index in &castable_card_indexes {
+                    match spend_state.attempt_to_cast(*card_index) {
+                        Ok(new_states) => {
+                            for new_state in new_states {
+                                output.push(Ok(new_state));
+                            }
+                        },
+                        Err(_) => {}
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod add_casting_states_works {
+    #[test]
+    fn on_these_examples_where_multiple_rudundant_paths_are_possible() {
+        // We want a state where there are 3 swamps and a starscape cleric is in hand
+        // And we want to only get one state back out
+        todo!();
+    }
+}
 
 impl State {
     fn apply_effect(&self, effect: Effect) -> Result<std::vec::IntoIter<Self>, EffectError> {
