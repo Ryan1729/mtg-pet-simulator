@@ -3,6 +3,8 @@ use card::{Card, Power, Toughness};
 /// 64k turns ought to be enough for anybody!
 pub type TurnNumber = u16;
 
+pub const INITIAL_TURN_NUMBER: TurnNumber = 0;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PermanentKind {
     Card(Card),

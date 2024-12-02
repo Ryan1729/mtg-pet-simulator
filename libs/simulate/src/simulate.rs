@@ -5,7 +5,7 @@
 
 use card::Card::{self, *};
 use mana::{ManaCost, ManaPool};
-use permanent::{Permanent, TurnNumber};
+use permanent::{Permanent, TurnNumber, INITIAL_TURN_NUMBER};
 
 use std::collections::{BTreeSet, BTreeMap, HashSet};
 use std::iter::ExactSizeIterator;
@@ -100,17 +100,7 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
         }
     }
 
-    states.push(
-        State {
-            hand,
-            board: Board::default(),
-            deck,
-            turn_number: 0,
-            step: Step::default(),
-            land_plays: INITIAL_LAND_PLAYS,
-            opponents_life: INITIAL_LIFE,
-        }
-    );
+    states.push(State::new(hand, deck));
 
     match spec.pet {
         Goldfish => {
@@ -1104,8 +1094,9 @@ mod board {
         use super::*;
         use card::Card::*;
         use mana::mp;
+        use permanent::INITIAL_TURN_NUMBER;
 
-        const TURN_NUMBER: TurnNumber = 0;
+        const TURN_NUMBER: TurnNumber = INITIAL_TURN_NUMBER;
 
         #[test]
         fn on_a_default_board() {
@@ -1203,6 +1194,18 @@ struct State {
 }
 
 impl State {
+    fn new(hand: Hand, deck: Deck) -> Self {
+        State {
+            hand,
+            board: Board::default(),
+            deck,
+            turn_number: INITIAL_TURN_NUMBER,
+            step: Step::default(),
+            land_plays: INITIAL_LAND_PLAYS,
+            opponents_life: INITIAL_LIFE,
+        }
+    }
+
     fn with_board(&self, board: Board) -> Self {
         Self {
             board,
@@ -1315,6 +1318,39 @@ impl State {
             }
         }
 
+        /// This is used to only retain one element of the given
+        /// equivalence class.
+        struct Equiv(State);
+
+        use std::cmp::Ordering;
+
+        impl Ord for Equiv {
+            fn cmp(&self, other: &Self) -> Ordering {
+                todo!("Ord")
+            }
+        }
+        
+        impl PartialOrd for Equiv {
+            fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+                Some(self.cmp(other))
+            }
+        }
+        
+        impl PartialEq for Equiv {
+            fn eq(&self, other: &Self) -> bool {
+                self.cmp(other) == Ordering::Equal
+            }
+        }
+
+        impl Eq for Equiv {}
+
+        /// Returns `true` if `s1` is a preferred game state over `s2`.
+        fn preferred(s1: &State, s2: &State) -> bool {
+            todo!("preferred")
+        }
+
+        let mut new_states = Vec::with_capacity(16);
+
         // TODO: We could filter out duplicates, and also use the set
         // of cards to restrict the mana_spends we consider, though
         // that may or may not be faster than trying them all quickly
@@ -1322,9 +1358,20 @@ impl State {
             for spend_state in self.mana_spends() {
                 for card_index in &castable_card_indexes {
                     match spend_state.attempt_to_cast(*card_index) {
-                        Ok(new_states) => {
-                            for new_state in new_states {
-                                output.push(Ok(new_state));
+                        Ok(cast_states) => {
+                            for unwrapped_cast_state in cast_states {
+                                let cast_state = Equiv(unwrapped_cast_state);
+
+                                match new_states.binary_search(&cast_state) {
+                                    Ok(replace_index) => {
+                                        if preferred(&cast_state.0, &new_states[replace_index].0) {
+                                            new_states[replace_index] = cast_state;
+                                        }
+                                    }
+                                    Err(insert_index) => {
+                                        new_states.insert(insert_index, cast_state);
+                                    }
+                                }
                             }
                         },
                         Err(_) => {}
@@ -1332,16 +1379,38 @@ impl State {
                 }
             }
         }
+
+        for new_state in new_states {
+            output.push(Ok(new_state.0));
+        }
     }
 }
 
 #[cfg(test)]
 mod add_casting_states_works {
+    use super::*;
+
     #[test]
     fn on_these_examples_where_multiple_rudundant_paths_are_possible() {
         // We want a state where there are 3 swamps and a starscape cleric is in hand
         // And we want to only get one state back out
-        todo!();
+        let hand = vec![StarscapeCleric];
+        let deck = vec![Swamp];
+
+        let mut board = Board::default()
+            .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
+            .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
+            .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
+            ;
+
+        let state = State::new(hand, deck.into())
+            .with_board(board);
+        
+        let mut output = Vec::with_capacity(1);
+
+        state.add_casting_states(&mut output);
+
+        assert_eq!(output.len(), 1, "{output:#?}");
     }
 }
 
