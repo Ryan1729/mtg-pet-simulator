@@ -326,7 +326,7 @@ mod board {
     use mana::{ManaCost, ManaPool, SpendError};
     use permanent::{Permanent, PermanentKind, TurnNumber};
 
-    use super::{Ability, Abilities, Effect, IndexSet, INDEX_SET_MAX_ELEMENTS, SpreeIter};
+    use super::{Ability, Abilities, Effect, Equiv, IndexSet, INDEX_SET_MAX_ELEMENTS, SpreeIter};
 
     use std::collections::{BTreeMap, BTreeSet};
 
@@ -340,6 +340,168 @@ mod board {
         mana_pool: ManaPool,
         // We suspect we'll want like lands, creatures, etc. as ready to go collections
         permanents: Vec<Permanent>,
+    }
+
+    use std::cmp::Ordering;
+
+    impl Ord for Equiv<&Board> {
+        fn cmp(&self, other: &Self) -> Ordering {
+            todo!("permanents");
+        }
+    }
+
+    impl PartialOrd for Equiv<&Board> {
+        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+    
+    impl PartialEq for Equiv<&Board> {
+        fn eq(&self, other: &Self) -> bool {
+            self.cmp(other) == Ordering::Equal
+        }
+    }
+
+    impl Eq for Equiv<&Board> {}
+
+    #[cfg(test)]
+    mod ord_for_equiv_board_works {
+        use super::*;
+        use card::Card::*;
+        use permanent::{INITIAL_TURN_NUMBER, PermanentKind::*};
+
+        #[test]
+        fn on_this_should_match_example() {
+             let extra_tapped_swamp = Board {
+                mana_pool: ManaPool {
+                    black: 1,
+                    colorless: 0,
+                },
+                permanents: vec![
+                    Permanent::card(Swamp, INITIAL_TURN_NUMBER).tapped(),
+                    Permanent::card(Swamp, INITIAL_TURN_NUMBER).tapped(),
+                    Permanent::card(Swamp, INITIAL_TURN_NUMBER).tapped(),
+                    Permanent::card(StarscapeCleric, INITIAL_TURN_NUMBER),
+                ],
+            };
+
+            let minimal_tapping = Board {
+                mana_pool: ManaPool {
+                    black: 0,
+                    colorless: 0,
+                },
+                permanents: vec![
+                    Permanent::card(Swamp, INITIAL_TURN_NUMBER).tapped(),
+                    Permanent::card(Swamp, INITIAL_TURN_NUMBER).tapped(),
+                    Permanent::card(Swamp, INITIAL_TURN_NUMBER),
+                    Permanent::card(StarscapeCleric, INITIAL_TURN_NUMBER),
+                ],
+            };
+
+            assert_eq!(
+                Equiv(&extra_tapped_swamp).cmp(&Equiv(&minimal_tapping)),
+                Ordering::Equal
+            );
+        }
+
+        #[test]
+        fn on_these_permuted_examples() {
+             let base = Board::default();
+
+             let extra_tapped_swamp = Board {
+                mana_pool: ManaPool {
+                    black: 1,
+                    colorless: 0,
+                },
+                permanents: vec![
+                    Permanent::card(Swamp, INITIAL_TURN_NUMBER).tapped(),
+                    Permanent::card(Swamp, INITIAL_TURN_NUMBER).tapped(),
+                    Permanent::card(Swamp, INITIAL_TURN_NUMBER).tapped(),
+                    Permanent::card(StarscapeCleric, INITIAL_TURN_NUMBER),
+                ],
+            };
+
+            let extra_tapped_swamp_permuted = Board {
+                mana_pool: ManaPool {
+                    black: 1,
+                    colorless: 0,
+                },
+                permanents: vec![
+                    Permanent::card(Swamp, INITIAL_TURN_NUMBER).tapped(),
+                    Permanent::card(Swamp, INITIAL_TURN_NUMBER).tapped(),
+                    Permanent::card(StarscapeCleric, INITIAL_TURN_NUMBER),
+                    Permanent::card(Swamp, INITIAL_TURN_NUMBER).tapped(),
+                ],
+            };
+
+            let minimal_tapping = Board {
+                mana_pool: ManaPool {
+                    black: 0,
+                    colorless: 0,
+                },
+                permanents: vec![
+                    Permanent::card(Swamp, INITIAL_TURN_NUMBER).tapped(),
+                    Permanent::card(Swamp, INITIAL_TURN_NUMBER).tapped(),
+                    Permanent::card(Swamp, INITIAL_TURN_NUMBER),
+                    Permanent::card(StarscapeCleric, INITIAL_TURN_NUMBER),
+                ],
+            };
+
+            let minimal_tapping_permuted = Board {
+                mana_pool: ManaPool {
+                    black: 0,
+                    colorless: 0,
+                },
+                permanents: vec![
+                    Permanent::card(Swamp, INITIAL_TURN_NUMBER).tapped(),
+                    Permanent::card(Swamp, INITIAL_TURN_NUMBER).tapped(),
+                    Permanent::card(StarscapeCleric, INITIAL_TURN_NUMBER),
+                    Permanent::card(Swamp, INITIAL_TURN_NUMBER),
+                ],
+            };
+
+            assert_ne!(
+                Equiv(&extra_tapped_swamp).cmp(&Equiv(&base)),
+                Ordering::Equal
+            );
+
+            assert_ne!(
+                Equiv(&extra_tapped_swamp_permuted).cmp(&Equiv(&base)),
+                Ordering::Equal
+            );
+
+            assert_ne!(
+                Equiv(&minimal_tapping).cmp(&Equiv(&base)),
+                Ordering::Equal
+            );
+
+            assert_ne!(
+                Equiv(&minimal_tapping_permuted).cmp(&Equiv(&base)),
+                Ordering::Equal
+            );
+
+            assert_ne!(
+                Equiv(&extra_tapped_swamp).cmp(&Equiv(&minimal_tapping_permuted)),
+                Ordering::Equal
+            );
+
+            assert_ne!(
+                Equiv(&minimal_tapping).cmp(&Equiv(&extra_tapped_swamp_permuted)),
+                Ordering::Equal
+            );
+
+            // Equal section
+
+            assert_eq!(
+                Equiv(&extra_tapped_swamp).cmp(&Equiv(&extra_tapped_swamp_permuted)),
+                Ordering::Equal
+            );
+
+            assert_eq!(
+                Equiv(&minimal_tapping).cmp(&Equiv(&minimal_tapping_permuted)),
+                Ordering::Equal
+            );
+        }
     }
 
     fn push(slice: &[Permanent], element: Permanent) -> Vec<Permanent> {
@@ -1142,7 +1304,7 @@ mod board {
 use board::Board;
 
 
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 enum Step {
     #[default]
     Untap,
@@ -1309,6 +1471,10 @@ type EffectError = ();
 
 type CardSet = BTreeSet<Card>;
 
+/// This is used to only retain one element of the given
+/// equivalence class.
+struct Equiv<A>(pub A);
+
 impl State {
     fn add_casting_states(&self, output: &mut Vec<Result<Self, OutcomeAt>>) {
         let mut castable_card_indexes = Vec::with_capacity(self.hand.len());
@@ -1318,35 +1484,49 @@ impl State {
             }
         }
 
-        /// This is used to only retain one element of the given
-        /// equivalence class.
-        struct Equiv(State);
-
         use std::cmp::Ordering;
 
-        impl Ord for Equiv {
+        impl Ord for Equiv<State> {
             fn cmp(&self, other: &Self) -> Ordering {
-                todo!("Ord")
+                macro_rules! cmp_ret {
+                    ($field: ident) => {
+                        match self.0.$field.cmp(&other.0.$field) {
+                            Ordering::Equal => {},
+                            other => return other,
+                        }
+                    }
+                }
+                cmp_ret!(hand);
+                cmp_ret!(land_plays);
+                cmp_ret!(step);
+                cmp_ret!(turn_number);
+                cmp_ret!(opponents_life);
+                match self.0.deck.len().cmp(&other.0.deck.len()) {
+                    Ordering::Equal => {},
+                    other => return other,
+                }
+
+                Equiv(&self.0.board).cmp(&Equiv(&other.0.board))
             }
         }
         
-        impl PartialOrd for Equiv {
+        impl PartialOrd for Equiv<State> {
             fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
                 Some(self.cmp(other))
             }
         }
         
-        impl PartialEq for Equiv {
+        impl PartialEq for Equiv<State> {
             fn eq(&self, other: &Self) -> bool {
                 self.cmp(other) == Ordering::Equal
             }
         }
 
-        impl Eq for Equiv {}
+        impl Eq for Equiv<State> {}
 
         /// Returns `true` if `s1` is a preferred game state over `s2`.
         fn preferred(s1: &State, s2: &State) -> bool {
-            todo!("preferred")
+            false//todo!("preferred")
         }
 
         let mut new_states = Vec::with_capacity(16);
@@ -1391,7 +1571,7 @@ mod add_casting_states_works {
     use super::*;
 
     #[test]
-    fn on_these_examples_where_multiple_rudundant_paths_are_possible() {
+    fn on_these_examples_where_multiple_redundant_paths_are_possible() {
         // We want a state where there are 3 swamps and a starscape cleric is in hand
         // And we want to only get one state back out
         let hand = vec![StarscapeCleric];
