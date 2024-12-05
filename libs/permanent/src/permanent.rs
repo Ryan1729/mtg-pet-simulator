@@ -11,6 +11,16 @@ pub enum PermanentKind {
     Token(Card),
 }
 
+impl PermanentKind {
+    pub fn card(&self) -> Card {
+        use PermanentKind::*;
+        match self {
+            Card(card) => *card,
+            Token(card) => *card,
+        }
+    }
+}
+
 pub type IsTapped = bool;
 //pub type IsFlipped = bool;
 //pub type IsFaceDown = bool;

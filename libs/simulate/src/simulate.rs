@@ -41,14 +41,14 @@ pub struct Spec {
     pub pet: PetSpec,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outcome {
     Lose,
     Win,
 }
 use Outcome::*;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OutcomeAt {
     outcome: Outcome,
     at: TurnNumber,
@@ -116,6 +116,7 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
                             states.push(s);
                         }
                         Err(outcome) => {
+                            dbg!(&outcome);
                             outcomes.push(outcome);
                         }
                     }
@@ -179,7 +180,7 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
             }
 
             let mut output = Vec::with_capacity(state.hand.len());
-
+dbg!(&state);
             state.add_casting_states(&mut output);
 
             // TODO add more possible plays when there are any
@@ -231,6 +232,7 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
             // attackers step.
             let attackers = state.board.possible_attackers(state.turn_number);
 
+//dbg!(&state.board, &attackers);
             let mut total_power = 0;
 
             for &index in attackers.into_iter() {
@@ -346,7 +348,44 @@ mod board {
 
     impl Ord for Equiv<&Board> {
         fn cmp(&self, other: &Self) -> Ordering {
-            todo!("permanents");
+            let mut permanents = self.0.permanents.clone();
+            permanents.sort();
+            let mut other_permanents = other.0.permanents.clone();
+            other_permanents.sort();
+
+            let mut mana_pool = self.0.mana_pool;
+            let mut other_mana_pool = other.0.mana_pool;
+
+            // For each mana in the pool, untap any corresponding 
+            // basic lands.
+            // TODO actually handle all mana colours
+            'black: while mana_pool.black > 0 {
+                for permanent in &mut permanents {
+                    if permanent.kind().card() == card::Card::Swamp
+                    && permanent.is_tapped() {
+                        *permanent = permanent.untapped();
+                        mana_pool.black -= 1;
+                        continue 'black;
+                    }
+                }
+
+                break
+            }
+
+            'other_black: while other_mana_pool.black > 0 {
+                for permanent in &mut other_permanents {
+                    if permanent.kind().card() == card::Card::Swamp
+                    && permanent.is_tapped() {
+                        *permanent = permanent.untapped();
+                        other_mana_pool.black -= 1;
+                        continue 'other_black;
+                    }
+                }
+
+                break
+            }
+
+            permanents.cmp(&other_permanents)
         }
     }
 
@@ -355,7 +394,7 @@ mod board {
             Some(self.cmp(other))
         }
     }
-    
+
     impl PartialEq for Equiv<&Board> {
         fn eq(&self, other: &Self) -> bool {
             self.cmp(other) == Ordering::Equal
@@ -480,16 +519,6 @@ mod board {
                 Ordering::Equal
             );
 
-            assert_ne!(
-                Equiv(&extra_tapped_swamp).cmp(&Equiv(&minimal_tapping_permuted)),
-                Ordering::Equal
-            );
-
-            assert_ne!(
-                Equiv(&minimal_tapping).cmp(&Equiv(&extra_tapped_swamp_permuted)),
-                Ordering::Equal
-            );
-
             // Equal section
 
             assert_eq!(
@@ -499,6 +528,16 @@ mod board {
 
             assert_eq!(
                 Equiv(&minimal_tapping).cmp(&Equiv(&minimal_tapping_permuted)),
+                Ordering::Equal
+            );
+
+            assert_eq!(
+                Equiv(&extra_tapped_swamp).cmp(&Equiv(&minimal_tapping_permuted)),
+                Ordering::Equal
+            );
+
+            assert_eq!(
+                Equiv(&minimal_tapping).cmp(&Equiv(&extra_tapped_swamp_permuted)),
                 Ordering::Equal
             );
         }
@@ -579,9 +618,9 @@ mod board {
         SacrificeCreatureForTwoBlack,
     }
     use ManaAbilityKindSpec::*;
-    
+
     pub type CreatureIndex = usize;
-    
+
     #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
     pub enum ManaAbilityKind {
         //TapForWhite,
@@ -592,12 +631,12 @@ mod board {
         TapForColorless,
         SacrificeCreatureForTwoBlack(CreatureIndex),
     }
-    
+
     static NO_MANA_ABILITIES: &[ManaAbilityKindSpec] = &[];
     static TAP_FOR_BLACK: &[ManaAbilityKindSpec] = &[TapForBlack];
     static PHYREXIAN_TOWER_ABILITIES: &[ManaAbilityKindSpec] = &[TapForColorless, SacrificeCreatureForTwoBlack];
     static TAP_FOR_COLORLESS: &[ManaAbilityKindSpec] = &[TapForColorless];
-    
+
     fn mana_ability_kind_specs_for_card(card: Card) -> impl Iterator<Item = &'static ManaAbilityKindSpec> {
         use Card::*;
         match card {
@@ -633,7 +672,7 @@ mod board {
             | ExquisiteBlood => NO_MANA_ABILITIES.into_iter(),
         }
     }
-    
+
     fn mana_abilities<'board>(
         board: &'board Board,
         permanent_index: PermanentIndex,
@@ -1117,7 +1156,7 @@ mod board {
                             Ability {
                                 mana_cost: ManaCost {
                                     generic: 3,
-                                    black: 1,
+                                    black: 2,
                                     ..ManaCost::default()
                                 },
                                 creature_cost: 0,
@@ -1313,8 +1352,8 @@ enum Step {
     MainPhase1,
     //BeginningOfCombat,
     //DeclareAttackers,
-    //DeclareBlockers, 
-    CombatDamage, 
+    //DeclareBlockers,
+    CombatDamage,
     //EndOfCombat
     MainPhase2,
     End,
@@ -1509,13 +1548,13 @@ impl State {
                 Equiv(&self.0.board).cmp(&Equiv(&other.0.board))
             }
         }
-        
+
         impl PartialOrd for Equiv<State> {
             fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
                 Some(self.cmp(other))
             }
         }
-        
+
         impl PartialEq for Equiv<State> {
             fn eq(&self, other: &Self) -> bool {
                 self.cmp(other) == Ordering::Equal
@@ -1526,7 +1565,7 @@ impl State {
 
         /// Returns `true` if `s1` is a preferred game state over `s2`.
         fn preferred(s1: &State, s2: &State) -> bool {
-            false//todo!("preferred")
+            true//todo!("preferred")
         }
 
         let mut new_states = Vec::with_capacity(16);
@@ -1569,6 +1608,7 @@ impl State {
 #[cfg(test)]
 mod add_casting_states_works {
     use super::*;
+    use permanent::PermanentKind::*;
 
     #[test]
     fn on_these_examples_where_multiple_redundant_paths_are_possible() {
@@ -1585,12 +1625,48 @@ mod add_casting_states_works {
 
         let state = State::new(hand, deck.into())
             .with_board(board);
-        
+
         let mut output = Vec::with_capacity(1);
 
         state.add_casting_states(&mut output);
 
         assert_eq!(output.len(), 1, "{output:#?}");
+    }
+
+    #[test]
+    fn on_these_examples_where_we_care_about_order() {
+        // We want an example state where we have multiple options to test
+        // we get the state where we did play something out first
+        let hand = vec![Swamp, Swamp, StarscapeCleric, StarscapeCleric];
+        let deck = vec![Swamp];
+
+        let mut board = Board::default()
+            .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
+            .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
+            .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
+            .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
+            ;
+
+        let state = State::new(hand, deck.into())
+            .with_board(board);
+
+        let mut output = Vec::with_capacity(1);
+
+        state.add_casting_states(&mut output);
+
+        assert_eq!(
+            output.clone().into_iter().map(|s| s.unwrap().board).collect::<Vec<_>>(),
+            vec![
+                // We specifically want the 0 mana pool
+                Board::default()
+                    .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER).tapped())
+                    .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER).tapped())
+                    .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
+                    .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
+                    .enter(Permanent::card(StarscapeCleric, INITIAL_TURN_NUMBER))
+            ], 
+            "{output:#?}"
+        );
     }
 }
 
@@ -1645,7 +1721,7 @@ impl State {
                 let (hand, removed) = remove(&self.hand, index).ok_or(())?;
 
                 Ok(vec![Self {
-                    hand: hand.to_vec(), 
+                    hand: hand.to_vec(),
                     board: self.board.enter(Permanent::card(removed, self.turn_number)),
                     ..self.clone()
                 }].into_iter())
@@ -1658,7 +1734,7 @@ impl State {
                 let token = Permanent::token_of(card, self.turn_number).with_p_t(1, 1);
 
                 Ok(vec![Self {
-                    hand: hand.to_vec(), 
+                    hand: hand.to_vec(),
                     board: self.board.enter(Permanent::card(removed, self.turn_number)).enter(token),
                     ..self.clone()
                 }].into_iter())
