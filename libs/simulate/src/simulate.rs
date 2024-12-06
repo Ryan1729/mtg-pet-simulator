@@ -82,7 +82,34 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
         }
     }?;
 
-    let mut states = Vec::with_capacity(64);
+    struct HeapWrapper(State);
+
+    use std::cmp::Ordering;
+
+    impl Ord for HeapWrapper {
+        fn cmp(&self, other: &Self) -> Ordering {
+            // The BinaryHeap is a max-heap by default so reverse the order to put low opponents_life first
+            other.0.opponents_life.cmp(&self.0.opponents_life)
+                // reverse the order to put low turns first
+                .then_with(|| other.0.turn_number.cmp(&self.0.turn_number))
+        }
+    }
+
+    impl PartialOrd for HeapWrapper {
+        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+
+    impl PartialEq for HeapWrapper {
+        fn eq(&self, other: &Self) -> bool {
+            self.cmp(other) == Ordering::Equal
+        }
+    }
+
+    impl Eq for HeapWrapper {}
+
+    let mut states = std::collections::BinaryHeap::with_capacity(64);
 
     let mut hand = Vec::with_capacity(16);
 
@@ -101,20 +128,20 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
     }
 
     // TODO make this a heap so we always pick the earliest turn states
-    states.push(State::new(hand, deck));
+    states.push(HeapWrapper(State::new(hand, deck)));
 
     match spec.pet {
         Goldfish => {
             let mut outcomes = Vec::with_capacity(64);
 
-            while let Some(state) = states.pop() {
+            while let Some(HeapWrapper(state)) = states.pop() {
                 let results = calculate_step(state);
 
                 for result in results.into_vec().into_iter() {
                     let result: Result<State, OutcomeAt> = result;
                     match result {
                         Ok(s) => {
-                            states.push(s);
+                            states.push(HeapWrapper(s));
                         }
                         Err(outcome) => {
                             outcomes.push(outcome);
@@ -180,7 +207,7 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
             }
 
             let mut output = Vec::with_capacity(state.hand.len());
-dbg!(&state);
+dbg!(&state.turn_number);
             state.add_casting_states(&mut output);
 
             // TODO add more possible plays when there are any
