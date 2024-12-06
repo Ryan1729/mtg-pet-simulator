@@ -100,6 +100,7 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
         }
     }
 
+    // TODO make this a heap so we always pick the earliest turn states
     states.push(State::new(hand, deck));
 
     match spec.pet {
@@ -116,7 +117,6 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
                             states.push(s);
                         }
                         Err(outcome) => {
-                            dbg!(&outcome);
                             outcomes.push(outcome);
                         }
                     }
@@ -541,6 +541,11 @@ mod board {
                 Ordering::Equal
             );
         }
+    }
+
+    /// Returns `true` if `b1` is a preferred board over `b2`.
+    pub fn preferred(b1: &Board, b2: &Board) -> bool {
+        (b1.mana_pool.is_empty() && !b2.mana_pool.is_empty())
     }
 
     fn push(slice: &[Permanent], element: Permanent) -> Vec<Permanent> {
@@ -1565,7 +1570,7 @@ impl State {
 
         /// Returns `true` if `s1` is a preferred game state over `s2`.
         fn preferred(s1: &State, s2: &State) -> bool {
-            true//todo!("preferred")
+            board::preferred(&s1.board, &s2.board)
         }
 
         let mut new_states = Vec::with_capacity(16);

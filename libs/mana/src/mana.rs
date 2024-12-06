@@ -81,6 +81,10 @@ pub use _mp as mp;
 pub type SpendError = ();
 
 impl ManaPool {
+    pub fn is_empty(&self) -> bool {
+        self == &Self::default()
+    }
+
     pub fn spend(self, mut cost: ManaCost) -> Result<impl Iterator<Item = Self>, SpendError> {
         type Set<A> = std::collections::BTreeSet<A>;
         let besides_generic = Self {
