@@ -155,6 +155,7 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
     }
 }
 
+// TODO return a compile-time known non-empty collection, since we have a test that fails because this returns empty
 fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
     macro_rules! one_path_forward {
         () => {
@@ -572,7 +573,7 @@ mod board {
 
     /// Returns `true` if `b1` is a preferred board over `b2`.
     pub fn preferred(b1: &Board, b2: &Board) -> bool {
-        (b1.mana_pool.is_empty() && !b2.mana_pool.is_empty())
+        b1.mana_pool.is_empty() && !b2.mana_pool.is_empty()
     }
 
     fn push(slice: &[Permanent], element: Permanent) -> Vec<Permanent> {
@@ -2340,6 +2341,88 @@ mod calculate_works {
             let does_match = matches!(outcome, OutcomeAt{ outcome: Win, ..});
 
             assert!(does_match);
+        }
+    }
+}
+
+#[cfg(test)]
+mod calculate_step_works {
+    use super::*;
+
+    #[test]
+    fn when_you_can_swing_for_lethal_first_combat() {
+        let deck: [Card; 6] = [
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+        ];
+
+        let mut state = State::new(<_>::default(), deck.into());
+        state.step = CombatDamage;
+        state.board = 
+            Board::default()
+            .enter(
+                Permanent::card(StarscapeCleric, INITIAL_TURN_NUMBER)
+                    .with_p_t(INITIAL_LIFE.try_into().unwrap(), INITIAL_LIFE.try_into().unwrap())
+            )
+            ;
+        // So we can attack with the big creature
+        state.turn_number = INITIAL_TURN_NUMBER + 1;
+        let outcomes = calculate_step(state);
+
+        for outcome in outcomes.into_iter() {
+            let does_match = matches!(outcome.as_ref().unwrap_err(), OutcomeAt{ outcome: Win, ..});
+
+            assert!(does_match);
+        }
+    }
+
+    #[test]
+    fn when_you_can_swing_for_lethal_next_combat() {
+        let deck: [Card; 6] = [
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+        ];
+
+        let mut state = State::new(<_>::default(), deck.into());
+        state.step = MainPhase2;
+        state.board = 
+            Board::default()
+            .enter(
+                Permanent::card(StarscapeCleric, INITIAL_TURN_NUMBER)
+                    .with_p_t(INITIAL_LIFE.try_into().unwrap(), INITIAL_LIFE.try_into().unwrap())
+            )
+            ;
+
+        let mut states = vec![state];
+
+        while !states.iter().any(|s| s.step == CombatDamage) {
+            dbg!(&states);
+            let state = states.pop().expect("ran out of states");
+
+            let outcomes = calculate_step(state);
+            dbg!(&outcomes);
+            for outcome in outcomes.into_iter() {
+                dbg!(&outcome);
+                states.push(outcome.clone().expect("ended too soon"));
+            }
+        }
+
+        for state in states {
+            let outcomes = calculate_step(state);
+    
+            for outcome in outcomes.into_iter() {
+                let does_match = matches!(outcome.as_ref().unwrap_err(), OutcomeAt{ outcome: Win, ..});
+    
+                assert!(does_match);
+            }
         }
     }
 }
