@@ -155,11 +155,42 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
     }
 }
 
-// TODO return a compile-time known non-empty collection, since we have a test that fails because this returns empty
-fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
+mod non_empty {
+    #[derive(Debug)]
+    pub struct OwnedSlice<A>(
+        Box<[A]>
+    );
+
+    impl <A> OwnedSlice<A> {
+        pub fn slice(&self) -> &[A] {
+            &self.0
+        }
+
+        pub fn into_vec(self) -> Vec<A> {
+            self.0.into_vec()
+        }
+    }
+
+    impl <A> From<A> for OwnedSlice<A> {
+        fn from(a: A) -> Self {
+            Self(Box::from([a]))
+        }
+    }
+
+    impl <A> From<(A, Vec<A>)> for OwnedSlice<A> {
+        fn from((a, mut rest): (A, Vec<A>)) -> Self {
+            rest.push(a);
+            Self(rest.into())
+        }
+    }
+}
+
+type StepOutput = non_empty::OwnedSlice<Result<State, OutcomeAt>>;
+
+fn calculate_step(mut state: State) -> StepOutput {
     macro_rules! one_path_forward {
         () => {
-            return Box::from([Ok(state)])
+            return StepOutput::from(Ok(state))
         }
     }
 
@@ -167,12 +198,12 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
         () => {
             // TODO probably some fiddly rules about who the active player is?
             if state.opponents_life <= 0 {
-                return Box::from([
+                return StepOutput::from(
                     Err(OutcomeAt {
                         outcome: Win,
                         at: state.turn_number,
                     })
-                ]);
+                );
             }
         }
     }
@@ -204,7 +235,9 @@ fn calculate_step(mut state: State) -> Box<[Result<State, OutcomeAt>]> {
                     }));
                 }
 
-                return Box::from(output);
+                if let Some(s) = output.pop() {
+                    return StepOutput::from((s, output));
+                }
             }
 
             let mut output = Vec::with_capacity(state.hand.len());
@@ -214,8 +247,7 @@ dbg!(&state.turn_number);
             // TODO add more possible plays when there are any
 
             state.step = $next_step;
-            output.push(Ok(state));
-            return Box::from(output);
+            return StepOutput::from((Ok(state), output));
         })
     }
 
@@ -241,12 +273,12 @@ dbg!(&state.turn_number);
 
                 one_path_forward!()
             } else {
-                return Box::from([
+                return StepOutput::from(
                     Err(OutcomeAt {
                         outcome: Lose,
                         at: state.turn_number,
                     })
-                ]);
+                );
             }
         },
         MainPhase1 => {
@@ -2373,7 +2405,7 @@ mod calculate_step_works {
         state.turn_number = INITIAL_TURN_NUMBER + 1;
         let outcomes = calculate_step(state);
 
-        for outcome in outcomes.into_iter() {
+        for outcome in outcomes.into_vec().into_iter() {
             let does_match = matches!(outcome.as_ref().unwrap_err(), OutcomeAt{ outcome: Win, ..});
 
             assert!(does_match);
@@ -2409,7 +2441,7 @@ mod calculate_step_works {
 
             let outcomes = calculate_step(state);
             dbg!(&outcomes);
-            for outcome in outcomes.into_iter() {
+            for outcome in outcomes.into_vec().into_iter() {
                 dbg!(&outcome);
                 states.push(outcome.clone().expect("ended too soon"));
             }
@@ -2418,7 +2450,7 @@ mod calculate_step_works {
         for state in states {
             let outcomes = calculate_step(state);
     
-            for outcome in outcomes.into_iter() {
+            for outcome in outcomes.into_vec().into_iter() {
                 let does_match = matches!(outcome.as_ref().unwrap_err(), OutcomeAt{ outcome: Win, ..});
     
                 assert!(does_match);
