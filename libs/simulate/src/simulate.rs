@@ -19,11 +19,17 @@ pub enum DrawSpec {
 }
 use DrawSpec::*;
 
-#[cfg(test)]
 const NO_SHUFFLING: DrawSpec = NthDraw(0);
 
-#[derive(Clone, Copy, Debug)]
+impl Default for DrawSpec {
+    fn default() -> Self {
+        NO_SHUFFLING
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
 pub enum PetSpec {
+    #[default]
     Goldfish,
 }
 use PetSpec::*;
@@ -35,10 +41,23 @@ impl PetSpec {
     ];
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
+pub enum TurnBoundsSpec {
+    StopAt(TurnNumber),
+}
+use TurnBoundsSpec::*;
+
+impl Default for TurnBoundsSpec {
+    fn default() -> Self {
+        TurnBoundsSpec::StopAt(10)
+    }
+}
+
+#[derive(Debug, Default)]
 pub struct Spec {
     pub draw: DrawSpec,
     pub pet: PetSpec,
+    pub turn_bounds: TurnBoundsSpec,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -141,7 +160,13 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
                     let result: Result<State, OutcomeAt> = result;
                     match result {
                         Ok(s) => {
-                            states.push(HeapWrapper(s));
+                            match spec.turn_bounds {
+                                StopAt(max_turn) => {
+                                    if s.turn_number <= max_turn {
+                                        states.push(HeapWrapper(s));
+                                    }
+                                }
+                            }
                         }
                         Err(outcome) => {
                             outcomes.push(outcome);
@@ -241,7 +266,7 @@ fn calculate_step(mut state: State) -> StepOutput {
             }
 
             let mut output = Vec::with_capacity(state.hand.len());
-dbg!(&state.turn_number);
+
             state.add_casting_states(&mut output);
 
             // TODO add more possible plays when there are any
@@ -2156,7 +2181,7 @@ mod calculate_works {
     #[test]
     fn on_empty_deck() {
         for pet in PetSpec::ALL {
-            let spec = Spec { draw: NthDraw(0), pet };
+            let spec = Spec { draw: NthDraw(0), pet, ..<_>::default() };
             assert!(calculate(spec, &[]).is_err());
         }
     }
@@ -2164,7 +2189,7 @@ mod calculate_works {
     #[test]
     fn on_too_small_but_non_empty_deck() {
         for pet in PetSpec::ALL {
-            let spec = Spec { draw: NthDraw(0), pet };
+            let spec = Spec { draw: NthDraw(0), pet, ..<_>::default() };
             assert!(calculate(spec, &[Swamp; 1]).is_err());
         }
     }
@@ -2172,7 +2197,7 @@ mod calculate_works {
     #[test]
     fn on_too_large_deck() {
         for pet in PetSpec::ALL {
-            let spec = Spec { draw: NthDraw(0), pet };
+            let spec = Spec { draw: NthDraw(0), pet, ..<_>::default() };
             assert!(calculate(spec, &[Swamp; MAX_DECK_SIZE as usize + 1]).is_err());
         }
     }
@@ -2191,7 +2216,7 @@ mod calculate_works {
 
         for draw in DRAW_SPECS {
             for pet in PetSpec::ALL {
-                let outcomes = calculate(Spec { draw, pet }, &_8_swamps).unwrap();
+                let outcomes = calculate(Spec { draw, pet, ..<_>::default() }, &_8_swamps).unwrap();
 
                 for outcome in outcomes {
                     let does_match = matches!(outcome, OutcomeAt{ outcome: Lose, ..});
@@ -2218,7 +2243,7 @@ mod calculate_works {
 
         for draw in DRAW_SPECS {
             for pet in PetSpec::ALL {
-                let outcomes = calculate(Spec { draw, pet }, &_60_swamps).unwrap();
+                let outcomes = calculate(Spec { draw, pet, ..<_>::default() }, &_60_swamps).unwrap();
 
                 for outcome in outcomes {
                     let does_match = matches!(
@@ -2257,7 +2282,7 @@ mod calculate_works {
 
         for draw in DRAW_SPECS {
             for pet in PetSpec::ALL {
-                let outcomes = calculate(Spec { draw, pet }, &_8_non_lands).unwrap();
+                let outcomes = calculate(Spec { draw, pet, ..<_>::default() }, &_8_non_lands).unwrap();
 
                 for outcome in outcomes {
                     let does_match = matches!(outcome, OutcomeAt{ outcome: Lose, ..});
@@ -2291,7 +2316,7 @@ mod calculate_works {
 
         for draw in DRAW_SPECS {
             for pet in PetSpec::ALL {
-                let outcomes = calculate(Spec{ draw, pet }, &_8_swamps_and_non_basic_lands).unwrap();
+                let outcomes = calculate(Spec{ draw, pet, ..<_>::default() }, &_8_swamps_and_non_basic_lands).unwrap();
 
                 for outcome in outcomes {
                     let does_match = matches!(outcome, OutcomeAt{ outcome: Lose, ..});
@@ -2367,7 +2392,7 @@ mod calculate_works {
             Swamp,
         ];
 
-        let outcomes = calculate(Spec{ draw: NO_SHUFFLING, pet: Goldfish }, &_deck).unwrap();
+        let outcomes = calculate(Spec{ draw: NO_SHUFFLING, pet: Goldfish, turn_bounds: StopAt(7) }, &_deck).unwrap();
 
         for outcome in outcomes {
             let does_match = matches!(outcome, OutcomeAt{ outcome: Win, ..});
@@ -2436,13 +2461,10 @@ mod calculate_step_works {
         let mut states = vec![state];
 
         while !states.iter().any(|s| s.step == CombatDamage) {
-            dbg!(&states);
             let state = states.pop().expect("ran out of states");
 
             let outcomes = calculate_step(state);
-            dbg!(&outcomes);
             for outcome in outcomes.into_vec().into_iter() {
-                dbg!(&outcome);
                 states.push(outcome.clone().expect("ended too soon"));
             }
         }
