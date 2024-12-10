@@ -146,8 +146,24 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
         }
     }
 
-    // TODO make this a heap so we always pick the earliest turn states
-    states.push(HeapWrapper(State::new(hand, deck)));
+    let mut seen = std::collections::HashMap::with_capacity(64);
+    let mut total = 0;
+    macro_rules! push_state {
+        ($state: expr) => ({
+            total += 1;
+            let s = $state;
+            if !seen.contains_key(&s) {
+                // Could probably just store the hash here
+                // and avoid the clone.
+                seen.insert(s.clone(), 1);
+                states.push(HeapWrapper(s));
+            } else {
+                *seen.entry(s).or_insert(1) += 1;
+            }
+        })
+    }
+
+    push_state!(State::new(hand, deck));
 
     match spec.pet {
         Goldfish => {
@@ -163,7 +179,7 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
                             match spec.turn_bounds {
                                 StopAt(max_turn) => {
                                     if s.turn_number <= max_turn {
-                                        states.push(HeapWrapper(s));
+                                        push_state!(s);
                                     }
                                 }
                             }
@@ -174,7 +190,9 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
                     }
                 }
             }
-
+            dbg!(seen.values().collect::<BTreeSet<_>>());
+            dbg!(seen.values().map(|n| n - 1).fold(0, |x, acc| x + acc));
+            dbg!(total);
             return Ok(outcomes);
         }
     }
@@ -216,6 +234,13 @@ fn calculate_step(mut state: State) -> StepOutput {
     macro_rules! one_path_forward {
         () => {
             return StepOutput::from(Ok(state))
+        }
+    }
+
+    macro_rules! set_step {
+        ($state: expr, $step: expr) => {
+            $state.step = $step;
+            $state.with_mana_pool(<_>::default());
         }
     }
 
@@ -271,7 +296,7 @@ fn calculate_step(mut state: State) -> StepOutput {
 
             // TODO add more possible plays when there are any
 
-            state.step = $next_step;
+            set_step!(state, $next_step);
             return StepOutput::from((Ok(state), output));
         })
     }
@@ -284,7 +309,7 @@ fn calculate_step(mut state: State) -> StepOutput {
                 *permanent = permanent.untapped();
             }
 
-            state.step = Draw;
+            set_step!(state, Draw);
 
             one_path_forward!()
         }
@@ -294,7 +319,7 @@ fn calculate_step(mut state: State) -> StepOutput {
             if let Some((card, d)) = draw(state.deck) {
                 state.deck = d;
                 state.hand.push(card);
-                state.step = MainPhase1;
+                set_step!(state, MainPhase1);
 
                 one_path_forward!()
             } else {
@@ -343,7 +368,7 @@ fn calculate_step(mut state: State) -> StepOutput {
             check_state_based_actions!();
 
             state.turn_number += 1;
-            state.step = Step::default();
+            set_step!(state, Step::default());
             state.land_plays = INITIAL_LAND_PLAYS;
             one_path_forward!()
         }
@@ -422,7 +447,7 @@ mod board {
     // making them fast. So, we expect to want to change the internals
     // later on, without needing to change all the usages of those
     // internals.
-    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    #[derive(Clone, Debug, Default, Hash, PartialEq, Eq)]
     pub struct Board {
         mana_pool: ManaPool,
         // We suspect we'll want like lands, creatures, etc. as ready to go collections
@@ -1433,7 +1458,7 @@ mod board {
 use board::Board;
 
 
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Copy, Clone, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 enum Step {
     #[default]
     Untap,
@@ -1473,7 +1498,7 @@ type Life = i16;
 
 const INITIAL_LIFE: Life = 20;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 struct State {
     hand: Hand,
     board: Board,

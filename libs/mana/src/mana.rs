@@ -10,7 +10,7 @@ pub enum ManaType {
 // 64k Mana ought to be enough for anybody!
 pub type ManaAmount = u16;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ManaPool {
     //pub white: ManaAmount,
     //pub blue: ManaAmount,
