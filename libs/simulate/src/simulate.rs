@@ -146,19 +146,17 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
         }
     }
 
-    let mut seen = std::collections::HashMap::with_capacity(64);
-    let mut total = 0;
+    let mut seen = HashSet::with_capacity(64);
     macro_rules! push_state {
         ($state: expr) => ({
-            total += 1;
             let s = $state;
-            if !seen.contains_key(&s) {
+            if !seen.contains(&s) {
                 // Could probably just store the hash here
                 // and avoid the clone.
-                seen.insert(s.clone(), 1);
+                // Something like this maybe?
+                // https://www.somethingsimilar.com/2012/05/21/the-opposite-of-a-bloom-filter/
+                seen.insert(s.clone());
                 states.push(HeapWrapper(s));
-            } else {
-                *seen.entry(s).or_insert(1) += 1;
             }
         })
     }
@@ -190,9 +188,7 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
                     }
                 }
             }
-            dbg!(seen.values().collect::<BTreeSet<_>>());
-            dbg!(seen.values().map(|n| n - 1).fold(0, |x, acc| x + acc));
-            dbg!(total);
+
             return Ok(outcomes);
         }
     }
@@ -1780,7 +1776,6 @@ mod add_casting_states_works {
                     .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
                     .enter(Permanent::card(StarscapeCleric, INITIAL_TURN_NUMBER))
             ], 
-            "{output:#?}"
         );
     }
 }

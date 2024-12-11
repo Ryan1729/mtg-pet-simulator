@@ -234,10 +234,10 @@ impl Card {
             | BakeIntoAPie
             | EnduringTenacity => None,
             StarscapeCleric => Some(2),
-            HoodedBlightfang => Some(1),
-            NighthawkScavenger => Some(1),
-            VitoThornOfTheDuskRose => Some(1),
-            SheoldredTheApocalypse  => Some(4),
+            HoodedBlightfang
+            | NighthawkScavenger
+            | VitoThornOfTheDuskRose => Some(1),
+            SheoldredTheApocalypse => Some(4),
         }
     }
 }
@@ -255,9 +255,23 @@ mod raw_power_works {
     }
 
     #[test]
+    fn on_hooded_blightfang() {
+        let card = HoodedBlightfang;
+
+        assert_eq!(card.raw_power(), Some(1));
+    }
+
+    #[test]
     fn on_starscape_cleric() {
         let card = StarscapeCleric;
 
         assert_eq!(card.raw_power(), Some(2));
+    }
+
+    #[test]
+    fn on_sheoldred_the_apocalypse() {
+        let card = SheoldredTheApocalypse;
+
+        assert_eq!(card.raw_power(), Some(4));
     }
 }

@@ -73,7 +73,7 @@ impl Permanent {
 
     pub fn power(&self) -> Option<Power> {
         use PermanentKind::*;
-        self.override_base_power.or_else(|| { 
+        self.override_base_power.or_else(|| {
             match self.kind {
                 Card(card) => card.raw_power(),
                 Token(card) => card.raw_power(),
@@ -114,5 +114,18 @@ impl Permanent {
             is_tapped: true,
             ..self.clone()
         }
+    }
+}
+
+#[cfg(test)]
+mod power_works {
+    use super::*;
+
+    #[test]
+    fn on_a_non_modified_token() {
+        // Say we had Rite of Replication implmented
+        let token = Permanent::token_of(Card::HoodedBlightfang, INITIAL_TURN_NUMBER);
+
+        assert_eq!(token.power(), Some(1));
     }
 }
