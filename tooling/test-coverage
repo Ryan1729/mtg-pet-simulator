@@ -1,4 +1,5 @@
 
-RUST_LOG=ERROR cargo tarpaulin \
+# opt-level=0 because some optimizations prevent some lines from being covered, presumably because of function inlining
+RUST_LOG=ERROR RUSTFLAGS='-C opt-level=0' cargo tarpaulin \
 --workspace --offline --engine llvm --release --include-tests --fail-immediately --fail-under 100 "$@" \
 | rg --no-line-number -v '(.*cargo_tarpaulin::statemachine.*)|(.*cargo_tarpaulin::process_handling.*Setting LLVM_PROFILE_FILE.*)'

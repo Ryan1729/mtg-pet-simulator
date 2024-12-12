@@ -7,12 +7,13 @@ use card::Card::{self, *};
 use mana::{ManaCost, ManaPool};
 use permanent::{Permanent, TurnNumber, INITIAL_TURN_NUMBER};
 
+use std::cmp::Ordering;
 use std::collections::{BTreeSet, BTreeMap, HashSet};
 use std::iter::ExactSizeIterator;
 
 type PermutationNumber = u128;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DrawSpec {
     //AllDraws,
     NthDraw(PermutationNumber),
@@ -27,7 +28,7 @@ impl Default for DrawSpec {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PetSpec {
     #[default]
     Goldfish,
@@ -41,7 +42,7 @@ impl PetSpec {
     ];
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TurnBoundsSpec {
     StopAt(TurnNumber),
 }
@@ -53,7 +54,7 @@ impl Default for TurnBoundsSpec {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct Spec {
     pub draw: DrawSpec,
     pub pet: PetSpec,
@@ -90,6 +91,48 @@ use CalculateError::*;
 
 const MAX_DECK_SIZE: u8 = 60;
 
+#[derive(Debug)]
+struct HeapWrapper(State);
+
+impl Ord for HeapWrapper {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // The BinaryHeap is a max-heap by default so reverse the order to put low opponents_life first
+        other.0.opponents_life.cmp(&self.0.opponents_life)
+            // reverse the order to put low turns first
+            .then_with(|| other.0.turn_number.cmp(&self.0.turn_number))
+    }
+}
+
+impl PartialOrd for HeapWrapper {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for HeapWrapper {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for HeapWrapper {}
+
+#[cfg(test)]
+mod heap_wrapper_works {
+    use super::*;
+
+    #[test]
+    fn when_checking_equality() {
+        let hand = Hand::default();
+        let deck = Deck::default();
+
+        assert_eq!(
+            HeapWrapper(State::new(hand.clone(), deck.clone())),
+            HeapWrapper(State::new(hand.clone(), deck.clone())),
+        );
+    }
+}
+
 pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> {
     if deck.len() > MAX_DECK_SIZE as _ {
         return Err(DeckTooLarge);
@@ -100,33 +143,6 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
             nth_ordered(deck, n)
         }
     }?;
-
-    struct HeapWrapper(State);
-
-    use std::cmp::Ordering;
-
-    impl Ord for HeapWrapper {
-        fn cmp(&self, other: &Self) -> Ordering {
-            // The BinaryHeap is a max-heap by default so reverse the order to put low opponents_life first
-            other.0.opponents_life.cmp(&self.0.opponents_life)
-                // reverse the order to put low turns first
-                .then_with(|| other.0.turn_number.cmp(&self.0.turn_number))
-        }
-    }
-
-    impl PartialOrd for HeapWrapper {
-        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-            Some(self.cmp(other))
-        }
-    }
-
-    impl PartialEq for HeapWrapper {
-        fn eq(&self, other: &Self) -> bool {
-            self.cmp(other) == Ordering::Equal
-        }
-    }
-
-    impl Eq for HeapWrapper {}
 
     let mut states = std::collections::BinaryHeap::with_capacity(64);
 
@@ -201,10 +217,6 @@ mod non_empty {
     );
 
     impl <A> OwnedSlice<A> {
-        pub fn slice(&self) -> &[A] {
-            &self.0
-        }
-
         pub fn into_vec(self) -> Vec<A> {
             self.0.into_vec()
         }
