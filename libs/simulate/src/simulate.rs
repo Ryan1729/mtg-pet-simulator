@@ -184,8 +184,11 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
             let mut outcomes = Vec::with_capacity(64);
 
             while let Some(HeapWrapper(state)) = states.pop() {
+                dbg!(&state);
                 let results = calculate_step(state);
-
+                if results.slice().len() > 1 {
+                    dbg!(&results);
+                }
                 for result in results.into_vec().into_iter() {
                     let result: Result<State, OutcomeAt> = result;
                     match result {
@@ -217,6 +220,10 @@ mod non_empty {
     );
 
     impl <A> OwnedSlice<A> {
+        pub fn slice(&self) -> &[A] {
+            &self.0
+        }
+
         pub fn into_vec(self) -> Vec<A> {
             self.0.into_vec()
         }
@@ -474,7 +481,7 @@ mod board {
             let mut mana_pool = self.0.mana_pool;
             let mut other_mana_pool = other.0.mana_pool;
 
-            // For each mana in the pool, untap any corresponding 
+            // For each mana in the pool, untap any corresponding
             // basic lands.
             // TODO actually handle all mana colours
             'black: while mana_pool.black > 0 {
@@ -1735,25 +1742,49 @@ mod add_casting_states_works {
 
     #[test]
     fn on_these_examples_where_multiple_redundant_paths_are_possible() {
-        // We want a state where there are 3 swamps and a starscape cleric is in hand
-        // And we want to only get one state back out
-        let hand = vec![StarscapeCleric];
-        let deck = vec![Swamp];
+        {
+            // We want a state where there are 3 swamps and a starscape cleric is in hand
+            // And we want to only get one state back out
+            let hand = vec![StarscapeCleric];
+            let deck = vec![Swamp];
 
-        let mut board = Board::default()
-            .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
-            .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
-            .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
-            ;
+            let mut board = Board::default()
+                .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
+                .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
+                .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
+                ;
 
-        let state = State::new(hand, deck.into())
-            .with_board(board);
+            let state = State::new(hand, deck.into())
+                .with_board(board);
 
-        let mut output = Vec::with_capacity(1);
+            let mut output = Vec::with_capacity(1);
 
-        state.add_casting_states(&mut output);
+            state.add_casting_states(&mut output);
 
-        assert_eq!(output.len(), 1, "{output:#?}");
+            assert_eq!(output.len(), 1, "{output:#?}");
+        }
+
+        {
+            // We want a state where there are 3 swamps and two starscape clerics in hand
+            // And we want to only get one state back out
+            let hand = vec![StarscapeCleric, StarscapeCleric];
+            let deck = vec![Swamp];
+
+            let mut board = Board::default()
+                .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
+                .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
+                .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
+                ;
+
+            let state = State::new(hand, deck.into())
+                .with_board(board);
+
+            let mut output = Vec::with_capacity(1);
+
+            state.add_casting_states(&mut output);
+
+            assert_eq!(output.len(), 1, "{output:#?}");
+        }
     }
 
     #[test]
@@ -1787,7 +1818,7 @@ mod add_casting_states_works {
                     .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
                     .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
                     .enter(Permanent::card(StarscapeCleric, INITIAL_TURN_NUMBER))
-            ], 
+            ],
         );
     }
 }
@@ -2451,7 +2482,7 @@ mod calculate_step_works {
 
         let mut state = State::new(<_>::default(), deck.into());
         state.step = CombatDamage;
-        state.board = 
+        state.board =
             Board::default()
             .enter(
                 Permanent::card(StarscapeCleric, INITIAL_TURN_NUMBER)
@@ -2482,7 +2513,7 @@ mod calculate_step_works {
 
         let mut state = State::new(<_>::default(), deck.into());
         state.step = MainPhase2;
-        state.board = 
+        state.board =
             Board::default()
             .enter(
                 Permanent::card(StarscapeCleric, INITIAL_TURN_NUMBER)
@@ -2503,13 +2534,67 @@ mod calculate_step_works {
 
         for state in states {
             let outcomes = calculate_step(state);
-    
+
             for outcome in outcomes.into_vec().into_iter() {
                 let does_match = matches!(outcome.as_ref().unwrap_err(), OutcomeAt{ outcome: Win, ..});
-    
+
                 assert!(does_match);
             }
         }
+    }
+
+    #[test]
+    fn in_this_case_that_should_not_produce_multiple_outputs_where_starscape_cleric_is_played() {
+        use permanent::{PermanentKind::*};
+
+        let hand = vec![
+            StarscapeCleric,
+            StarscapeCleric,
+            StarscapeCleric,
+            StarscapeCleric,
+            Swamp,
+            Swamp,
+            Swamp,
+        ].into();
+
+        let deck = vec![
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+        ].into();
+
+        let mut state = State::new(hand, deck);
+        state.step = MainPhase1;
+        state.board =
+            Board::default()
+            .enter(
+                Permanent::card(Swamp, INITIAL_TURN_NUMBER)
+            )
+            .enter(
+                Permanent::card(Swamp, INITIAL_TURN_NUMBER + 1)
+            )
+            .enter(
+                Permanent::card(Swamp, INITIAL_TURN_NUMBER + 2)
+            )
+            ;
+        state.turn_number = INITIAL_TURN_NUMBER + 2;
+        state.land_plays = 0;
+
+        let outcomes = calculate_step(state);
+
+        let mut has_cleric_count = 0;
+        for outcome in outcomes.into_vec().into_iter() {
+            let mut state = outcome.unwrap();
+
+            if state.board.permanents_mut().any(|p| p.kind().card() == StarscapeCleric) {
+                has_cleric_count += 1;
+            }
+        }
+
+        assert_eq!(has_cleric_count, 1);
     }
 }
 
