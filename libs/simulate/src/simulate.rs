@@ -308,7 +308,7 @@ fn calculate_step(mut state: State) -> StepOutput {
             let mut output = Vec::with_capacity(state.hand.len());
 
             state.add_casting_states(&mut output);
-
+            
             // TODO add more possible plays when there are any
 
             set_step!(state, $next_step);
@@ -1642,7 +1642,104 @@ type CardSet = BTreeSet<Card>;
 
 /// This is used to only retain one element of the given
 /// equivalence class.
+#[derive(Debug)]
 struct Equiv<A>(pub A);
+
+impl Ord for Equiv<State> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        macro_rules! cmp_ret {
+            ($field: ident) => {
+                match self.0.$field.cmp(&other.0.$field) {
+                    Ordering::Equal => {},
+                    other => return other,
+                }
+            }
+        }
+        cmp_ret!(hand);
+        cmp_ret!(land_plays);
+        cmp_ret!(step);
+        cmp_ret!(turn_number);
+        cmp_ret!(opponents_life);
+        match self.0.deck.len().cmp(&other.0.deck.len()) {
+            Ordering::Equal => {},
+            other => return other,
+        }
+
+        Equiv(&self.0.board).cmp(&Equiv(&other.0.board))
+    }
+}
+
+impl PartialOrd for Equiv<State> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for Equiv<State> {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for Equiv<State> {}
+
+mod equiv_of_state_works {
+    use super::*;
+
+    #[test]
+    fn on_this_found_pair() {
+        let hand: Hand = vec![
+            StarscapeCleric,
+            StarscapeCleric,
+            StarscapeCleric,
+            Swamp,
+            Swamp,
+            Swamp,
+        ].into();
+
+        let deck: Deck = vec![
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+        ].into();
+
+        let board = Board::default()
+            .enter(Permanent::card(Swamp, 0))
+            .enter(Permanent::card(Swamp, 1))
+            .enter(Permanent::card(Swamp, 2))
+            .enter(Permanent::card(StarscapeCleric, 2));
+
+        let s1 = Equiv(State {
+            hand: hand.clone(),
+            board: board.with_mana_pool(
+                ManaPool {
+                    black: 1,
+                    colorless: 0,
+                }
+            ),
+            deck: deck.clone(),
+            land_plays: 0,
+            step: MainPhase1,
+            turn_number: 2,
+            opponents_life: 20,
+        });
+
+        let s2 = Equiv(State {
+            hand,
+            board,
+            deck,
+            land_plays: 0,
+            step: MainPhase1,
+            turn_number: 2,
+            opponents_life: 20,
+        });
+
+        assert_eq!(s1, s2);
+    }
+}
 
 impl State {
     fn add_casting_states(&self, output: &mut Vec<Result<Self, OutcomeAt>>) {
@@ -1652,46 +1749,6 @@ impl State {
                 castable_card_indexes.push(card_index);
             }
         }
-
-        use std::cmp::Ordering;
-
-        impl Ord for Equiv<State> {
-            fn cmp(&self, other: &Self) -> Ordering {
-                macro_rules! cmp_ret {
-                    ($field: ident) => {
-                        match self.0.$field.cmp(&other.0.$field) {
-                            Ordering::Equal => {},
-                            other => return other,
-                        }
-                    }
-                }
-                cmp_ret!(hand);
-                cmp_ret!(land_plays);
-                cmp_ret!(step);
-                cmp_ret!(turn_number);
-                cmp_ret!(opponents_life);
-                match self.0.deck.len().cmp(&other.0.deck.len()) {
-                    Ordering::Equal => {},
-                    other => return other,
-                }
-
-                Equiv(&self.0.board).cmp(&Equiv(&other.0.board))
-            }
-        }
-
-        impl PartialOrd for Equiv<State> {
-            fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-                Some(self.cmp(other))
-            }
-        }
-
-        impl PartialEq for Equiv<State> {
-            fn eq(&self, other: &Self) -> bool {
-                self.cmp(other) == Ordering::Equal
-            }
-        }
-
-        impl Eq for Equiv<State> {}
 
         /// Returns `true` if `s1` is a preferred game state over `s2`.
         fn preferred(s1: &State, s2: &State) -> bool {
@@ -1710,7 +1767,7 @@ impl State {
                         Ok(cast_states) => {
                             for unwrapped_cast_state in cast_states {
                                 let cast_state = Equiv(unwrapped_cast_state);
-
+let _ = dbg!(new_states.binary_search(&cast_state), &cast_state);
                                 match new_states.binary_search(&cast_state) {
                                     Ok(replace_index) => {
                                         if preferred(&cast_state.0, &new_states[replace_index].0) {
@@ -1748,7 +1805,7 @@ mod add_casting_states_works {
             let hand = vec![StarscapeCleric];
             let deck = vec![Swamp];
 
-            let mut board = Board::default()
+            let board = Board::default()
                 .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
                 .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
                 .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
@@ -1770,7 +1827,7 @@ mod add_casting_states_works {
             let hand = vec![StarscapeCleric, StarscapeCleric];
             let deck = vec![Swamp];
 
-            let mut board = Board::default()
+            let board = Board::default()
                 .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
                 .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
                 .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
@@ -1788,13 +1845,60 @@ mod add_casting_states_works {
     }
 
     #[test]
+    fn on_this_found_example_where_multiple_redundant_paths_are_possible() {
+        // We want a state like the one we found in practice,
+        // And we want to only get one state back out
+        let hand = vec![
+            StarscapeCleric,
+            StarscapeCleric,
+            StarscapeCleric,
+            StarscapeCleric,
+            Swamp,
+            Swamp,
+            Swamp,
+        ].into();
+
+        let deck = vec![
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+        ].into();
+
+        let mut state = State::new(hand, deck);
+        state.step = MainPhase1;
+        state.board =
+            Board::default()
+            .enter(
+                Permanent::card(Swamp, INITIAL_TURN_NUMBER)
+            )
+            .enter(
+                Permanent::card(Swamp, INITIAL_TURN_NUMBER + 1)
+            )
+            .enter(
+                Permanent::card(Swamp, INITIAL_TURN_NUMBER + 2)
+            )
+            ;
+        state.turn_number = INITIAL_TURN_NUMBER + 2;
+        state.land_plays = 0;
+
+        let mut output = Vec::with_capacity(1);
+
+        state.add_casting_states(&mut output);
+
+        assert_eq!(output.len(), 1, "{output:#?}");
+    }
+
+    #[test]
     fn on_these_examples_where_we_care_about_order() {
         // We want an example state where we have multiple options to test
         // we get the state where we did play something out first
         let hand = vec![Swamp, Swamp, StarscapeCleric, StarscapeCleric];
         let deck = vec![Swamp];
 
-        let mut board = Board::default()
+        let board = Board::default()
             .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
             .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
             .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
