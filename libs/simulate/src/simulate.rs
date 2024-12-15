@@ -184,11 +184,8 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
             let mut outcomes = Vec::with_capacity(64);
 
             while let Some(HeapWrapper(state)) = states.pop() {
-                dbg!(&state);
                 let results = calculate_step(state);
-                if results.slice().len() > 1 {
-                    dbg!(&results);
-                }
+
                 for result in results.into_vec().into_iter() {
                     let result: Result<State, OutcomeAt> = result;
                     match result {
@@ -510,11 +507,28 @@ mod board {
                 break
             }
 
-            permanents.cmp(&other_permanents)
+            mana_pool.cmp(&other_mana_pool).then_with(
+                || {
+                    todo!()
+                    // Equiv(permanents.as_slice()).cmp(&Equiv(other_permanents.as_slice()))
+                }
+            )
+        }
+    }
+
+    impl Ord for Equiv<Board> {
+        fn cmp(&self, other: &Self) -> Ordering {
+            Equiv(&self.0).cmp(&Equiv(&other.0))
         }
     }
 
     impl PartialOrd for Equiv<&Board> {
+        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+
+    impl PartialOrd for Equiv<Board> {
         fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
             Some(self.cmp(other))
         }
@@ -526,7 +540,15 @@ mod board {
         }
     }
 
+    impl PartialEq for Equiv<Board> {
+        fn eq(&self, other: &Self) -> bool {
+            self.cmp(other) == Ordering::Equal
+        }
+    }
+
     impl Eq for Equiv<&Board> {}
+
+    impl Eq for Equiv<Board> {}
 
     #[cfg(test)]
     mod ord_for_equiv_board_works {
@@ -1645,6 +1667,23 @@ type CardSet = BTreeSet<Card>;
 #[derive(Debug)]
 struct Equiv<A>(pub A);
 
+impl <A: std::fmt::Debug> Equiv<A>
+where Equiv<A>: Ord
+{
+    pub fn binary_search_in(&self, haystack: &[Equiv<A>]) -> Result<usize, usize> {
+        match haystack.binary_search(self) {
+            Ok(i) => Ok(i),
+            Err(i) => {
+                if haystack.get(i) == Some(self) {
+                    Ok(i)
+                } else {
+                    Err(i)
+                }
+            }
+        }
+    }
+}
+
 impl Ord for Equiv<State> {
     fn cmp(&self, other: &Self) -> Ordering {
         macro_rules! cmp_ret {
@@ -1683,7 +1722,7 @@ impl PartialEq for Equiv<State> {
 
 impl Eq for Equiv<State> {}
 
-mod equiv_of_state_works {
+mod equiv_state_works {
     use super::*;
 
     #[test]
@@ -1739,6 +1778,36 @@ mod equiv_of_state_works {
 
         assert_eq!(s1, s2);
     }
+
+    #[test]
+    fn when_binary_searching() {
+        let needle = Equiv(
+            Board::default()
+            .with_mana_pool(ManaPool {
+                black: 1,
+                colorless: 0,
+            })
+            .enter(Permanent::card(Swamp, 0).tapped())
+            .enter(Permanent::card(Swamp, 1).tapped())
+            .enter(Permanent::card(Swamp, 2).tapped())
+            .enter(Permanent::card(StarscapeCleric, 2))
+        );
+
+        let haystack = vec![
+            Equiv(
+                Board::default()
+                .enter(Permanent::card(Swamp, 0).tapped())
+                .enter(Permanent::card(Swamp, 1).tapped())
+                .enter(Permanent::card(Swamp, 2))
+                .enter(Permanent::card(StarscapeCleric, 2))
+            )
+        ];
+
+        assert_eq!(
+            needle.binary_search_in(&haystack),
+            Ok(0)
+        );
+    }
 }
 
 impl State {
@@ -1767,8 +1836,8 @@ impl State {
                         Ok(cast_states) => {
                             for unwrapped_cast_state in cast_states {
                                 let cast_state = Equiv(unwrapped_cast_state);
-let _ = dbg!(new_states.binary_search(&cast_state), &cast_state);
-                                match new_states.binary_search(&cast_state) {
+
+                                match cast_state.binary_search_in(&new_states) {
                                     Ok(replace_index) => {
                                         if preferred(&cast_state.0, &new_states[replace_index].0) {
                                             new_states[replace_index] = cast_state;
