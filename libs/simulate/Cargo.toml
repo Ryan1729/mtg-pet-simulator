@@ -11,8 +11,12 @@ path = "./src/simulate.rs"
 [dependencies.card]
 path = "../card"
 
+[dependencies.equiv]
+path = "../equiv"
+
 [dependencies.mana]
 path = "../mana"
 
 [dependencies.permanent]
 path = "../permanent"
+

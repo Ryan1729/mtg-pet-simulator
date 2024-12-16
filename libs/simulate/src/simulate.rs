@@ -4,6 +4,7 @@
 #![allow(non_snake_case)]
 
 use card::Card::{self, *};
+use equiv::{Equiv, LooseCmp};
 use mana::{ManaCost, ManaPool};
 use permanent::{Permanent, TurnNumber, INITIAL_TURN_NUMBER};
 
@@ -447,10 +448,11 @@ const INDEX_SET_MAX_ELEMENTS: usize = IndexSet::BITS as _;
 
 mod board {
     use card::Card;
+    use equiv::{Equiv, LooseCmp};
     use mana::{ManaCost, ManaPool, SpendError};
     use permanent::{Permanent, PermanentKind, TurnNumber};
 
-    use super::{Ability, Abilities, Effect, Equiv, IndexSet, INDEX_SET_MAX_ELEMENTS, SpreeIter};
+    use super::{Ability, Abilities, Effect, IndexSet, INDEX_SET_MAX_ELEMENTS, SpreeIter};
 
     use std::collections::{BTreeMap, BTreeSet};
 
@@ -468,15 +470,15 @@ mod board {
 
     use std::cmp::Ordering;
 
-    impl Ord for Equiv<&Board> {
-        fn cmp(&self, other: &Self) -> Ordering {
-            let mut permanents = self.0.permanents.clone();
+    impl LooseCmp for Board {
+        fn loose_cmp(&self, other: &Self) -> Ordering {
+            let mut permanents = self.permanents.clone();
             permanents.sort();
-            let mut other_permanents = other.0.permanents.clone();
+            let mut other_permanents = other.permanents.clone();
             other_permanents.sort();
 
-            let mut mana_pool = self.0.mana_pool;
-            let mut other_mana_pool = other.0.mana_pool;
+            let mut mana_pool = self.mana_pool;
+            let mut other_mana_pool = other.mana_pool;
 
             // For each mana in the pool, untap any corresponding
             // basic lands.
@@ -509,46 +511,11 @@ mod board {
 
             mana_pool.cmp(&other_mana_pool).then_with(
                 || {
-                    todo!()
-                    // Equiv(permanents.as_slice()).cmp(&Equiv(other_permanents.as_slice()))
+                    Ord::cmp(&Equiv(permanents.as_slice()), &Equiv(other_permanents.as_slice()))
                 }
             )
         }
     }
-
-    impl Ord for Equiv<Board> {
-        fn cmp(&self, other: &Self) -> Ordering {
-            Equiv(&self.0).cmp(&Equiv(&other.0))
-        }
-    }
-
-    impl PartialOrd for Equiv<&Board> {
-        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-            Some(self.cmp(other))
-        }
-    }
-
-    impl PartialOrd for Equiv<Board> {
-        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-            Some(self.cmp(other))
-        }
-    }
-
-    impl PartialEq for Equiv<&Board> {
-        fn eq(&self, other: &Self) -> bool {
-            self.cmp(other) == Ordering::Equal
-        }
-    }
-
-    impl PartialEq for Equiv<Board> {
-        fn eq(&self, other: &Self) -> bool {
-            self.cmp(other) == Ordering::Equal
-        }
-    }
-
-    impl Eq for Equiv<&Board> {}
-
-    impl Eq for Equiv<Board> {}
 
     #[cfg(test)]
     mod ord_for_equiv_board_works {
@@ -1662,33 +1629,11 @@ type EffectError = ();
 
 type CardSet = BTreeSet<Card>;
 
-/// This is used to only retain one element of the given
-/// equivalence class.
-#[derive(Debug)]
-struct Equiv<A>(pub A);
-
-impl <A: std::fmt::Debug> Equiv<A>
-where Equiv<A>: Ord
-{
-    pub fn binary_search_in(&self, haystack: &[Equiv<A>]) -> Result<usize, usize> {
-        match haystack.binary_search(self) {
-            Ok(i) => Ok(i),
-            Err(i) => {
-                if haystack.get(i) == Some(self) {
-                    Ok(i)
-                } else {
-                    Err(i)
-                }
-            }
-        }
-    }
-}
-
-impl Ord for Equiv<State> {
-    fn cmp(&self, other: &Self) -> Ordering {
+impl LooseCmp for State {
+    fn loose_cmp(&self, other: &Self) -> Ordering {
         macro_rules! cmp_ret {
             ($field: ident) => {
-                match self.0.$field.cmp(&other.0.$field) {
+                match self.$field.cmp(&other.$field) {
                     Ordering::Equal => {},
                     other => return other,
                 }
@@ -1699,28 +1644,14 @@ impl Ord for Equiv<State> {
         cmp_ret!(step);
         cmp_ret!(turn_number);
         cmp_ret!(opponents_life);
-        match self.0.deck.len().cmp(&other.0.deck.len()) {
+        match self.deck.len().cmp(&other.deck.len()) {
             Ordering::Equal => {},
             other => return other,
         }
 
-        Equiv(&self.0.board).cmp(&Equiv(&other.0.board))
+        Equiv(&self.board).cmp(&Equiv(&other.board))
     }
 }
-
-impl PartialOrd for Equiv<State> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl PartialEq for Equiv<State> {
-    fn eq(&self, other: &Self) -> bool {
-        self.cmp(other) == Ordering::Equal
-    }
-}
-
-impl Eq for Equiv<State> {}
 
 mod equiv_state_works {
     use super::*;

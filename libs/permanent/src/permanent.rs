@@ -1,4 +1,5 @@
 use card::{Card, Power, Toughness};
+use equiv::LooseCmp;
 
 /// 64k turns ought to be enough for anybody!
 pub type TurnNumber = u16;
@@ -40,6 +41,21 @@ pub struct Permanent {
     override_base_toughness: Option<Toughness>,
     /// Used to calculate summoning sickness.
     entered: TurnNumber,
+}
+
+impl LooseCmp for Permanent {
+    fn loose_cmp(&self, other: &Self) -> core::cmp::Ordering {
+        // ignore turn number
+        todo!();
+    }
+}
+
+fn foo() -> core::cmp::Ordering {
+    use card::Card::Swamp;
+    use equiv::Equiv;
+    let permanents = vec![Permanent::card(Swamp, 0)];
+    let other_permanents = vec![Permanent::card(Swamp, 0)];
+    Ord::cmp(&Equiv(permanents.as_slice()), &Equiv(other_permanents.as_slice()))
 }
 
 impl Permanent {

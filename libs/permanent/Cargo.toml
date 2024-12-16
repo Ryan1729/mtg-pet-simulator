@@ -10,3 +10,6 @@ path = "./src/permanent.rs"
 
 [dependencies.card]
 path = "../card"
+
+[dependencies.equiv]
+path = "../equiv"
