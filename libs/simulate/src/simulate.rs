@@ -1676,20 +1676,27 @@ mod equiv_state_works {
             Swamp,
         ].into();
 
-        let board = Board::default()
-            .enter(Permanent::card(Swamp, 0))
-            .enter(Permanent::card(Swamp, 1))
+        let board1 = Board::default()
+            .enter(Permanent::card(Swamp, 0).tapped())
+            .enter(Permanent::card(Swamp, 1).tapped())
+            .enter(Permanent::card(Swamp, 2).tapped())
+            .enter(Permanent::card(StarscapeCleric, 2))
+            .with_mana_pool(
+                ManaPool {
+                    black: 1,
+                    colorless: 0,
+                }
+            );
+
+        let board2 = Board::default()
+            .enter(Permanent::card(Swamp, 0).tapped())
+            .enter(Permanent::card(Swamp, 1).tapped())
             .enter(Permanent::card(Swamp, 2))
             .enter(Permanent::card(StarscapeCleric, 2));
 
         let s1 = Equiv(State {
             hand: hand.clone(),
-            board: board.with_mana_pool(
-                ManaPool {
-                    black: 1,
-                    colorless: 0,
-                }
-            ),
+            board: board1,
             deck: deck.clone(),
             land_plays: 0,
             step: MainPhase1,
@@ -1699,7 +1706,7 @@ mod equiv_state_works {
 
         let s2 = Equiv(State {
             hand,
-            board,
+            board: board2,
             deck,
             land_plays: 0,
             step: MainPhase1,

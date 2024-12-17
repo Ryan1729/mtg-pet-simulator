@@ -77,7 +77,7 @@ where Equiv<A>: Ord
 }
 
 impl <A> Ord for Equiv<&[A]>
-where A: LooseCmp {
+where A: LooseCmp + Ord {
     fn cmp(&self, other: &Self) -> Ordering {
         if self.0.len() == other.0.len() {
             let len = self.0.len();
@@ -89,28 +89,23 @@ where A: LooseCmp {
             }
             core::cmp::Ordering::Equal
         } else {
-            assert!(false, "Unexpected case hit in Ord for Equiv<&[A]>");
-            // Is this good enough, or should we compare prefixes to get 
-            // a better order?
-            self.0.len().cmp(&other.0.len())
-            // Maybe just
-            // self.0.cmp(&other.0)
+            Ord::cmp(&self.0, &other.0)
         }
     }
 }
 
 impl <A> PartialOrd for Equiv<&[A]> 
-where A: LooseCmp {
+where A: LooseCmp + Ord {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl <A> PartialEq for Equiv<&[A]> 
-where A: LooseCmp {
+where A: LooseCmp + Ord {
     fn eq(&self, other: &Self) -> bool {
         self.cmp(other) == Ordering::Equal
     }
 }
 
-impl <A> Eq for Equiv<&[A]> where A: LooseCmp {}
+impl <A> Eq for Equiv<&[A]> where A: LooseCmp + Ord {}

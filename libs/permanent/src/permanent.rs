@@ -45,8 +45,17 @@ pub struct Permanent {
 
 impl LooseCmp for Permanent {
     fn loose_cmp(&self, other: &Self) -> core::cmp::Ordering {
-        // ignore turn number
-        todo!();
+        self.kind.cmp(&other.kind)
+            .then_with(|| {
+                self.is_tapped.cmp(&other.is_tapped)
+                    .then_with(|| {
+                        self.override_base_power.cmp(&other.override_base_power)
+                            .then_with(|| {
+                                self.override_base_toughness.cmp(&other.override_base_toughness)
+                                // ignore turn number on purpose
+                            })
+                    })
+            })
     }
 }
 
