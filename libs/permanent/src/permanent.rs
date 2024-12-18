@@ -59,14 +59,6 @@ impl LooseCmp for Permanent {
     }
 }
 
-fn foo() -> core::cmp::Ordering {
-    use card::Card::Swamp;
-    use equiv::Equiv;
-    let permanents = vec![Permanent::card(Swamp, 0)];
-    let other_permanents = vec![Permanent::card(Swamp, 0)];
-    Ord::cmp(&Equiv(permanents.as_slice()), &Equiv(other_permanents.as_slice()))
-}
-
 impl Permanent {
     pub fn card(card: Card, entered: TurnNumber) -> Self {
         Self {
