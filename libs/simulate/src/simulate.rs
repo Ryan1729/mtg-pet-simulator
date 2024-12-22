@@ -306,7 +306,7 @@ fn calculate_step(mut state: State) -> StepOutput {
             let mut output = Vec::with_capacity(state.hand.len());
 
             state.add_casting_states(&mut output);
-            
+
             // TODO add more possible plays when there are any
 
             set_step!(state, $next_step);
@@ -1193,6 +1193,22 @@ mod board {
         }
     }
 
+    fn remove(slice: &[Permanent], index: usize) -> Option<(Box<[Permanent]>, Permanent)> {
+        if let Some(element) = slice.get(index).cloned() {
+            let mut output = Vec::with_capacity(slice.len() - 1);
+
+            for (i, e) in slice.iter().enumerate() {
+                if i == index { continue }
+
+                output.push(e.clone());
+            }
+
+            Some((output.into(), element))
+        } else {
+            None
+        }
+    }
+
     type TapPermanentError = ();
 
     impl Board {
@@ -1314,7 +1330,27 @@ mod board {
         }
 
         fn sacrifice_creature_at(&self, permanent_index: PermanentIndex) -> Result<Self, super::SacrificeCreaturesError> {
-            todo!("sacrifice_creature_at")
+            if let Some(to_sac) = self.permanents.get(permanent_index) {
+                if to_sac.is_a_creature() {
+                    // TODO: Tracking the graveyard
+                    // TODO: On-sacrifice triggers if we ever need them
+                    let Some((permanents, _)) = remove(
+                        &self.permanents,
+                        permanent_index,
+                    ) else {
+                        return Err(())
+                    };
+
+                    Ok(Self {
+                        permanents: permanents.to_vec(),
+                        ..self.clone()
+                    })
+                } else {
+                    Err(())
+                }
+            } else {
+                Err(())
+            }
         }
 
         /// Taps the given permanent as a cost. Returns an `Err` if it is already tapped, or if there is
@@ -2570,6 +2606,71 @@ mod calculate_works {
 
         for outcome in outcomes {
             let does_match = matches!(outcome, OutcomeAt{ outcome: Win, ..});
+
+            assert!(does_match);
+        }
+    }
+
+    #[test]
+    fn on_selected_non_basic_lands_and_cleric() {
+        let _deck: [Card; 28] = [
+            StarscapeCleric,
+            StarscapeCleric,
+            StarscapeCleric,
+            StarscapeCleric,
+            HagraMauling,
+            MemorialToFolly,
+            TheDrossPits,
+            PhyrexianTower,
+            BlastZone,
+            SceneOfTheCrime,
+            HagraMauling,
+            MemorialToFolly,
+            TheDrossPits,
+            PhyrexianTower,
+            BlastZone,
+            SceneOfTheCrime,
+            HagraMauling,
+            MemorialToFolly,
+            TheDrossPits,
+            PhyrexianTower,
+            BlastZone,
+            SceneOfTheCrime,
+            HagraMauling,
+            MemorialToFolly,
+            TheDrossPits,
+            PhyrexianTower,
+            BlastZone,
+            SceneOfTheCrime,
+        ];
+
+        let outcomes = calculate(Spec{ draw: NO_SHUFFLING, pet: Goldfish, turn_bounds: StopAt(7) }, &_deck).unwrap();
+
+        for outcome in outcomes {
+            let does_match = matches!(outcome, OutcomeAt{ outcome: Win, ..});
+
+            assert!(does_match);
+        }
+    }
+
+    #[test]
+    fn on_a_small_stack_of_clerics_and_swamps_and_a_tower() {
+        let _deck: [Card; 9] = [
+            StarscapeCleric,
+            StarscapeCleric,
+            StarscapeCleric,
+            StarscapeCleric,
+            PhyrexianTower,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+        ];
+
+        let outcomes = calculate(Spec{ draw: NO_SHUFFLING, pet: Goldfish, turn_bounds: StopAt(7) }, &_deck).unwrap();
+
+        for outcome in outcomes {
+            let does_match = matches!(outcome, OutcomeAt{ outcome: Loss, ..});
 
             assert!(does_match);
         }
