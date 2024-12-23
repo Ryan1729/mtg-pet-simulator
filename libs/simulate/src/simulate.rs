@@ -1061,6 +1061,62 @@ mod board {
 
             assert_eq!(none, None);
         }
+
+        #[test]
+        fn on_a_case_where_we_should_eliminate_some_redundant_elements() {
+            const ALL: [ManaAbility; 4] =
+                [
+                    ManaAbility {
+                        kind: ManaAbilityKind::TapForBlack,
+                        ability_index: 0,
+                        permanent_kind: PermanentKind::Card(
+                            card::Card::Swamp,
+                        ),
+                        permanent_index: 0,
+                    },
+                    ManaAbility {
+                        kind: ManaAbilityKind::TapForBlack,
+                        ability_index: 0,
+                        permanent_kind: PermanentKind::Card(
+                            card::Card::HagraMauling,
+                        ),
+                        permanent_index: 1,
+                    },
+                    ManaAbility {
+                        kind: ManaAbilityKind::TapForBlack,
+                        ability_index: 0,
+                        permanent_kind: PermanentKind::Card(
+                            card::Card::HagraMauling,
+                        ),
+                        permanent_index: 2,
+                    },
+                    ManaAbility {
+                        kind: ManaAbilityKind::TapForBlack,
+                        ability_index: 0,
+                        permanent_kind: PermanentKind::Card(
+                            card::Card::Swamp,
+                        ),
+                        permanent_index: 3,
+                    },
+                ];
+
+            const ALL_SUBSET_COUNT: usize = 1 << ALL.len();
+
+            let mut iter = ManaAbilitiesSubsets {
+                current_set: <_>::default(),
+                index_set: <_>::default(),
+                all: ALL.into(),
+                last_advance_was_skipped: <_>::default(),
+            };
+
+            let mut count = 0;
+            while let Some(_) = iter.next() {
+                count += 1;
+            }
+
+            // We should skip at least some in this case
+            assert_ne!(count, ALL_SUBSET_COUNT);
+        }
     }
 
     fn mana_abilty_subsets(board: &Board) -> ManaAbilitiesSubsets {
@@ -2661,6 +2717,32 @@ mod calculate_works {
             StarscapeCleric,
             StarscapeCleric,
             PhyrexianTower,
+            Swamp,
+            Swamp,
+            Swamp,
+            Swamp,
+        ];
+
+        let outcomes = calculate(Spec{ draw: NO_SHUFFLING, pet: Goldfish, turn_bounds: StopAt(7) }, &_deck).unwrap();
+
+        for outcome in outcomes {
+            let does_match = matches!(outcome, OutcomeAt{ outcome: Loss, ..});
+
+            assert!(does_match);
+        }
+    }
+
+    #[test]
+    fn on_a_small_stack_of_clerics_and_hagra_maulings_and_swamps() {
+        let _deck: [Card; 12] = [
+            StarscapeCleric,
+            StarscapeCleric,
+            StarscapeCleric,
+            StarscapeCleric,
+            HagraMauling,
+            HagraMauling,
+            HagraMauling,
+            HagraMauling,
             Swamp,
             Swamp,
             Swamp,
