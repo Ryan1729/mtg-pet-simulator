@@ -454,7 +454,7 @@ mod board {
 
     use super::{Ability, Abilities, Effect, IndexSet, INDEX_SET_MAX_ELEMENTS, SpreeIter};
 
-    use std::collections::{BTreeMap, BTreeSet};
+    use std::collections::{BTreeMap, BTreeSet, HashSet};
 
     // Keep things private because we suspect we'll want lots of different
     // ways to query what is on the board, and that we will care about
@@ -740,7 +740,7 @@ mod board {
 
     pub type CreatureIndex = usize;
 
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
     pub enum ManaAbilityKind {
         //TapForWhite,
         //TapForBlue,
@@ -887,13 +887,36 @@ mod board {
 
     type ManaAbilitiesSet = BTreeSet<ManaAbility>;
 
+    type ManaAbilitiesKey = (ManaAbilityKind, PermanentKind);
+
+    type AllManaAbilities = Box<[ManaAbility]>;
+
+    type ManaAbilitiesKeysHash = u64;
+
     // Making this streaming iterator instead of a flat list, to avoid using 2^n memory, seems worth it.
     #[derive(Debug)]
     struct ManaAbilitiesSubsets {
         current_set: ManaAbilitiesSet,
         index_set: IndexSet,
-        all: Box<[ManaAbility]>,
+        all: AllManaAbilities,
         last_advance_was_skipped: bool,
+        // This bit uses 2^n memory again worst case, but currently seems like the best way to 
+        // eliminate some duplicates we want to eliminate
+        seen: HashSet<ManaAbilitiesKeysHash>,
+        seen_buffer: Vec<ManaAbilitiesKey>
+    }
+
+    impl From<AllManaAbilities> for ManaAbilitiesSubsets {
+        fn from(all: AllManaAbilities) -> Self {
+            Self {
+                current_set: <_>::default(),
+                index_set: <_>::default(),
+                all,
+                last_advance_was_skipped: <_>::default(),
+                seen: <_>::default(),
+                seen_buffer: <_>::default(),
+            }
+        }
     }
 
     // Written aiming to be compatible with streaming_iterator but currently
@@ -916,25 +939,50 @@ mod board {
         }
 
         fn advance(&mut self) {
-            if self.fully_advanced() {
-                self.last_advance_was_skipped = true;
-                return
-            }
-            self.current_set.clear();
-
-            let mut used = self.index_set;
-
-            let mut index = 0;
-
-            while used > 0 {
-                if used & 1 != 0 {
-                    self.current_set.insert(self.all[index].clone());
+            loop {
+                if self.fully_advanced() {
+                    self.last_advance_was_skipped = true;
+                    return
                 }
-                index += 1;
-                used >>= 1;
-            }
 
-            self.index_set += 1;
+                self.current_set.clear();
+
+                let mut used = self.index_set;
+    
+                let mut index = 0;
+    
+                while used > 0 {
+                    if used & 1 != 0 {
+                        self.current_set.insert(self.all[index].clone());
+                    }
+                    index += 1;
+                    used >>= 1;
+                }
+    
+                self.index_set += 1;
+
+                self.seen_buffer.clear();
+
+                for el in &self.current_set {
+                    self.seen_buffer.push((el.kind, el.permanent_kind));
+                }
+
+                self.seen_buffer.sort();
+
+                use std::hash::{Hash, Hasher};
+                // TODO: Faster hash
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                for el in &self.seen_buffer {
+                    el.hash(&mut hasher);
+                }
+
+                let key = hasher.finish();
+
+                if !self.seen.contains(&key) {
+                    self.seen.insert(key);
+                    return
+                }
+            }
         }
 
         fn get(&self) -> Option<&ManaAbilitiesSet> {
@@ -986,12 +1034,9 @@ mod board {
 
         #[test]
         fn on_a_zero_element_all() {
-            let mut iter = ManaAbilitiesSubsets {
-                current_set: <_>::default(),
-                index_set: <_>::default(),
-                all: [].into(),
-                last_advance_was_skipped: <_>::default(),
-            };
+            let mut iter = ManaAbilitiesSubsets::from(
+                AllManaAbilities::from([])
+            );
 
             let empty = iter.next();
 
@@ -1004,12 +1049,9 @@ mod board {
 
         #[test]
         fn on_a_one_element_all() {
-            let mut iter = ManaAbilitiesSubsets {
-                current_set: <_>::default(),
-                index_set: <_>::default(),
-                all: [ABILITY].into(),
-                last_advance_was_skipped: <_>::default(),
-            };
+            let mut iter = ManaAbilitiesSubsets::from(
+                AllManaAbilities::from([ABILITY])
+            );
 
             // Subsets of a one element set with
             // an element called A include just
@@ -1030,12 +1072,9 @@ mod board {
 
         #[test]
         fn on_a_two_element_all() {
-            let mut iter = ManaAbilitiesSubsets {
-                current_set: <_>::default(),
-                index_set: <_>::default(),
-                all: TWO_ABILITIES.into(),
-                last_advance_was_skipped: <_>::default(),
-            };
+            let mut iter = ManaAbilitiesSubsets::from(
+                AllManaAbilities::from(TWO_ABILITIES)
+            );
 
             // Subsets of a two element set with
             // elements called A and B include
@@ -1102,12 +1141,9 @@ mod board {
 
             const ALL_SUBSET_COUNT: usize = 1 << ALL.len();
 
-            let mut iter = ManaAbilitiesSubsets {
-                current_set: <_>::default(),
-                index_set: <_>::default(),
-                all: ALL.into(),
-                last_advance_was_skipped: <_>::default(),
-            };
+            let mut iter = ManaAbilitiesSubsets::from(
+                AllManaAbilities::from(ALL)
+            );
 
             let mut count = 0;
             while let Some(_) = iter.next() {
@@ -1116,6 +1152,9 @@ mod board {
 
             // We should skip at least some in this case
             assert_ne!(count, ALL_SUBSET_COUNT);
+
+            // What it turned out to be
+            assert_eq!(count, 9);
         }
     }
 
@@ -1133,12 +1172,9 @@ mod board {
         // with the same overall interface, including addition.
         assert!(len <= INDEX_SET_MAX_ELEMENTS, "Too many mana abilities to fit subset indexes in 128 bits");
 
-        ManaAbilitiesSubsets {
-            current_set: <_>::default(),
-            index_set: <_>::default(),
-            all: all_mana_abilities.into(),
-            last_advance_was_skipped: <_>::default(),
-        }
+        ManaAbilitiesSubsets::from(
+            AllManaAbilities::from(all_mana_abilities)
+        )
     }
 
     /// A `ManaAbilityKey` represents everything about a given mana ability that
