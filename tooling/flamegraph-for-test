@@ -1,0 +1,6 @@
+
+# Install from https://github.com/flamegraph-rs/flamegraph
+# Changing performance counter permissions at the OS level may be needed.
+testname=$1
+
+flamegraph -o mtgps.svg -- cargo t --all -- $testname --nocapture

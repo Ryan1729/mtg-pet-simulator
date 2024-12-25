@@ -1,2 +1,6 @@
 /target
 tarpaulin-report.html
+
+mtgps.svg
+perf.data
+perf.data.old

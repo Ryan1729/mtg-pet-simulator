@@ -901,9 +901,9 @@ mod board {
         all: AllManaAbilities,
         last_advance_was_skipped: bool,
         // This bit uses 2^n memory again worst case, but currently seems like the best way to 
-        // eliminate some duplicates we want to eliminate
-        seen: HashSet<ManaAbilitiesKeysHash>,
-        seen_buffer: Vec<ManaAbilitiesKey>
+        // eliminate some duplicates we want to eliminate. In particular this seems faster than
+        // a hashmap, with the default hasher at least.
+        seen: Vec<Vec<ManaAbilitiesKey>>,
     }
 
     impl From<AllManaAbilities> for ManaAbilitiesSubsets {
@@ -914,7 +914,6 @@ mod board {
                 all,
                 last_advance_was_skipped: <_>::default(),
                 seen: <_>::default(),
-                seen_buffer: <_>::default(),
             }
         }
     }
@@ -961,26 +960,21 @@ mod board {
     
                 self.index_set += 1;
 
-                self.seen_buffer.clear();
+                let mut seen_buffer = Vec::with_capacity(self.current_set.len());
 
                 for el in &self.current_set {
-                    self.seen_buffer.push((el.kind, el.permanent_kind));
+                    seen_buffer.push((el.kind, el.permanent_kind));
                 }
 
-                self.seen_buffer.sort();
+                seen_buffer.sort();
+                self.seen.sort();
 
-                use std::hash::{Hash, Hasher};
-                // TODO: Faster hash
-                let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                for el in &self.seen_buffer {
-                    el.hash(&mut hasher);
-                }
-
-                let key = hasher.finish();
-
-                if !self.seen.contains(&key) {
-                    self.seen.insert(key);
-                    return
+                match self.seen.binary_search(&seen_buffer) {
+                    Ok(_) => {}
+                    Err(insert_at) => {
+                        self.seen.insert(insert_at, seen_buffer);
+                        return
+                    }
                 }
             }
         }
