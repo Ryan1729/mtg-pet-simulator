@@ -3,6 +3,9 @@
 // #![deny(unused_variables)] // This makes todo! use annoying
 #![allow(non_snake_case)]
 
+#[cfg(test)]
+use ntest::timeout;
+
 use card::Card::{self, *};
 use equiv::{Equiv, LooseCmp};
 use mana::{ManaCost, ManaPool};
@@ -2475,6 +2478,7 @@ mod calculate_works {
     const _2: Card = FeedTheSwarm;
 
     #[test]
+    #[timeout(1)]
     fn on_empty_deck() {
         for pet in PetSpec::ALL {
             let spec = Spec { draw: NthDraw(0), pet, ..<_>::default() };
@@ -2483,6 +2487,7 @@ mod calculate_works {
     }
 
     #[test]
+    #[timeout(1)]
     fn on_too_small_but_non_empty_deck() {
         for pet in PetSpec::ALL {
             let spec = Spec { draw: NthDraw(0), pet, ..<_>::default() };
@@ -2491,6 +2496,7 @@ mod calculate_works {
     }
 
     #[test]
+    #[timeout(1)]
     fn on_too_large_deck() {
         for pet in PetSpec::ALL {
             let spec = Spec { draw: NthDraw(0), pet, ..<_>::default() };
@@ -2499,6 +2505,7 @@ mod calculate_works {
     }
 
     #[test]
+    #[timeout(1)]
     fn on_8_swamps() {
         let _8_swamps = [Swamp; 8];
 
@@ -2524,6 +2531,7 @@ mod calculate_works {
     }
 
     #[test]
+    #[timeout(100)]
     fn on_60_swamps() {
         let _60_swamps = [Swamp; 60];
 
@@ -2556,6 +2564,7 @@ mod calculate_works {
     }
 
     #[test]
+    #[timeout(100)]
     fn on_8_non_lands() {
         let _8_non_lands = [
             InsatiableAvarice,
@@ -2590,6 +2599,7 @@ mod calculate_works {
     }
 
     #[test]
+    #[timeout(1)]
     fn on_8_swamps_and_non_basic_lands() {
         let _8_swamps_and_non_basic_lands = [
             MemorialToFolly,
@@ -2624,6 +2634,7 @@ mod calculate_works {
     }
 
     #[test]
+    #[timeout(1000)]
     fn on_stacked_swamps_and_cleric() {
         let _deck: [Card; 60] = [
             StarscapeCleric,
@@ -2698,6 +2709,7 @@ mod calculate_works {
     }
 
     #[test]
+    #[timeout(10000)]
     fn on_selected_non_basic_lands_and_cleric() {
         let _deck: [Card; 28] = [
             StarscapeCleric,
@@ -2740,6 +2752,7 @@ mod calculate_works {
     }
 
     #[test]
+    #[timeout(100)]
     fn on_a_small_stack_of_clerics_and_swamps_and_a_tower() {
         let _deck: [Card; 9] = [
             StarscapeCleric,
@@ -2763,6 +2776,7 @@ mod calculate_works {
     }
 
     #[test]
+    #[timeout(10000)]
     fn on_a_small_stack_of_clerics_and_hagra_maulings_and_swamps() {
         let _deck: [Card; 12] = [
             StarscapeCleric,

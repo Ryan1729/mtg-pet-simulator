@@ -20,3 +20,5 @@ path = "../mana"
 [dependencies.permanent]
 path = "../permanent"
 
+[dev-dependencies]
+ntest = "0.9.3"
