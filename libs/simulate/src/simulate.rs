@@ -221,10 +221,6 @@ mod non_empty {
     );
 
     impl <A> OwnedSlice<A> {
-        pub fn slice(&self) -> &[A] {
-            &self.0
-        }
-
         pub fn into_vec(self) -> Vec<A> {
             self.0.into_vec()
         }
@@ -524,7 +520,7 @@ mod board {
     mod ord_for_equiv_board_works {
         use super::*;
         use card::Card::*;
-        use permanent::{INITIAL_TURN_NUMBER, PermanentKind::*};
+        use permanent::{INITIAL_TURN_NUMBER};
 
         #[test]
         fn on_this_should_match_example() {
@@ -896,6 +892,8 @@ mod board {
 
     type ManaAbilitiesKeysHash = u64;
 
+    use ahash::{AHasher, RandomState};
+
     // Making this streaming iterator instead of a flat list, to avoid using 2^n memory, seems worth it.
     #[derive(Debug)]
     struct ManaAbilitiesSubsets {
@@ -904,9 +902,8 @@ mod board {
         all: AllManaAbilities,
         last_advance_was_skipped: bool,
         // This bit uses 2^n memory again worst case, but currently seems like the best way to 
-        // eliminate some duplicates we want to eliminate. In particular this seems faster than
-        // a hashmap, with the default hasher at least.
-        seen: Vec<Vec<ManaAbilitiesKey>>,
+        // eliminate some duplicates we want to eliminate.
+        seen: HashSet<Vec<ManaAbilitiesKey>, RandomState>,
     }
 
     impl From<AllManaAbilities> for ManaAbilitiesSubsets {
@@ -970,15 +967,13 @@ mod board {
                 }
 
                 seen_buffer.sort();
-                self.seen.sort();
 
-                match self.seen.binary_search(&seen_buffer) {
-                    Ok(_) => {}
-                    Err(insert_at) => {
-                        self.seen.insert(insert_at, seen_buffer);
-                        return
-                    }
+                let was_newly_inserted = self.seen.insert(seen_buffer.clone());
+
+                if was_newly_inserted {
+                    return
                 }
+                // else loop around and try the next one
             }
         }
 
@@ -1152,6 +1147,42 @@ mod board {
 
             // What it turned out to be
             assert_eq!(count, 9);
+        }
+
+        #[test]
+        fn on_this_large_case() {
+            const K: usize = 16;
+            let mut all = Vec::with_capacity(K);
+
+            for i in 0..K {
+                all.push(
+                    ManaAbility {
+                        kind: ManaAbilityKind::TapForBlack,
+                        ability_index: 0,
+                        permanent_kind: PermanentKind::Card(
+                            card::Card::Swamp,
+                        ),
+                        permanent_index: i,
+                    }
+                )
+            }
+
+            let all_subset_count: usize = 1 << all.len();
+
+            let mut iter = ManaAbilitiesSubsets::from(
+                AllManaAbilities::from(all)
+            );
+
+            let mut count = 0;
+            while let Some(_) = iter.next() {
+                count += 1;
+            }
+
+            // We should skip at least some in this case
+            assert_ne!(count, all_subset_count);
+
+            // What it turned out to be
+            assert_eq!(count, 17);
         }
     }
 
@@ -1927,7 +1958,6 @@ impl State {
 #[cfg(test)]
 mod add_casting_states_works {
     use super::*;
-    use permanent::PermanentKind::*;
 
     #[test]
     fn on_these_examples_where_multiple_redundant_paths_are_possible() {
@@ -2752,6 +2782,35 @@ mod calculate_works {
     }
 
     #[test]
+    #[timeout(1000)]
+    fn on_fewer_non_basic_lands_and_cleric() {
+        let _deck: [Card; 14] = [
+            StarscapeCleric,
+            StarscapeCleric,
+            StarscapeCleric,
+            StarscapeCleric,
+            HagraMauling,
+            MemorialToFolly,
+            TheDrossPits,
+            PhyrexianTower,
+            BlastZone,
+            SceneOfTheCrime,
+            HagraMauling,
+            MemorialToFolly,
+            TheDrossPits,
+            PhyrexianTower,
+        ];
+
+        let outcomes = calculate(Spec{ draw: NO_SHUFFLING, pet: Goldfish, turn_bounds: StopAt(2) }, &_deck).unwrap();
+
+        for outcome in outcomes {
+            let does_match = matches!(outcome, OutcomeAt{ outcome: Win, ..});
+
+            assert!(does_match);
+        }
+    }
+
+    #[test]
     #[timeout(100)]
     fn on_a_small_stack_of_clerics_and_swamps_and_a_tower() {
         let _deck: [Card; 9] = [
@@ -2883,8 +2942,6 @@ mod calculate_step_works {
 
     #[test]
     fn in_this_case_that_should_not_produce_multiple_outputs_where_starscape_cleric_is_played() {
-        use permanent::{PermanentKind::*};
-
         let hand = vec![
             StarscapeCleric,
             StarscapeCleric,
