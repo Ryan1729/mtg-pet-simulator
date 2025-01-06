@@ -850,7 +850,7 @@ mod board {
     type ManaAbilityIndex = u8;
 
     /// A Mana Ability that can be played on the battlefield, including the costs.
-    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
     struct ManaAbility {
         kind: ManaAbilityKind,
         ability_index: ManaAbilityIndex,
@@ -884,15 +884,83 @@ mod board {
         }
     }
 
-    type ManaAbilitiesSet = BTreeSet<ManaAbility>;
+    use ahash::{AHasher, RandomState, HashSetExt};
+
+    mod mana_abilities_set {
+        use super::*;
+
+        use ahash::{AHasher, RandomState, HashSetExt};
+
+        type ManaAbilitiesSetInner = HashSet<ManaAbility, RandomState>;
+
+        #[derive(Debug, Default)]
+        pub struct ManaAbilitiesSet {
+            set: ManaAbilitiesSetInner,
+        }
+
+        impl PartialEq for ManaAbilitiesSet {
+            fn eq(&self, other: &Self) -> bool {
+                let mut self_vec: Vec<_> = self.set.iter().collect();
+                self_vec.sort();
+
+                let mut other_vec: Vec<_> = self.set.iter().collect();
+                other_vec.sort();
+
+                self_vec == other_vec
+            }
+        }
+
+        impl <const N: usize> From<[ManaAbility; N]> for ManaAbilitiesSet {
+            fn from(arr: [ManaAbility; N]) -> Self {
+                let mut set = ManaAbilitiesSetInner::with_capacity(arr.len());
+
+                for e in arr {
+                    set.insert(e);
+                }
+
+                Self { set }
+            }
+        }
+
+        impl ManaAbilitiesSet {
+            pub fn new() -> Self {
+                Self{
+                    set: ManaAbilitiesSetInner::with_capacity(16),
+                }
+            }
+
+            pub fn unordered_iter(&self) -> impl Iterator<Item = &ManaAbility> {
+                self.set.iter()
+            }
+
+            pub fn ordered_iter(&self) -> impl Iterator<Item = ManaAbility> {
+                let mut vec: Vec<_> = self.set.iter().cloned().collect();
+
+                vec.sort();
+
+                vec.into_iter()
+            }
+
+            pub fn len(&self) -> usize {
+                self.set.len()
+            }
+
+            pub fn insert(&mut self, value: ManaAbility) {
+                self.set.insert(value);
+            }
+
+            pub fn clear(&mut self) {
+                self.set.clear();
+            }
+        }
+    }
+    use mana_abilities_set::ManaAbilitiesSet;
 
     type ManaAbilitiesKey = (ManaAbilityKind, PermanentKind);
 
     type AllManaAbilities = Box<[ManaAbility]>;
 
     type ManaAbilitiesKeysHash = u64;
-
-    use ahash::{AHasher, RandomState};
 
     // Making this streaming iterator instead of a flat list, to avoid using 2^n memory, seems worth it.
     #[derive(Debug)]
@@ -901,7 +969,7 @@ mod board {
         index_set: IndexSet,
         all: AllManaAbilities,
         last_advance_was_skipped: bool,
-        // This bit uses 2^n memory again worst case, but currently seems like the best way to 
+        // This bit uses 2^n memory again worst case, but currently seems like the best way to
         // eliminate some duplicates we want to eliminate.
         seen: HashSet<Vec<ManaAbilitiesKey>, RandomState>,
     }
@@ -947,9 +1015,9 @@ mod board {
                 self.current_set.clear();
 
                 let mut used = self.index_set;
-    
+
                 let mut index = 0;
-    
+
                 while used > 0 {
                     if used & 1 != 0 {
                         self.current_set.insert(self.all[index].clone());
@@ -957,12 +1025,14 @@ mod board {
                     index += 1;
                     used >>= 1;
                 }
-    
+
                 self.index_set += 1;
 
                 let mut seen_buffer = Vec::with_capacity(self.current_set.len());
 
-                for el in &self.current_set {
+                for el in self.current_set.unordered_iter(){
+                    // This iter shows up on the flamegraph! I think we want a datastructure with better memory
+                    // locality. A hashset seems like the obvious choice
                     seen_buffer.push((el.kind, el.permanent_kind));
                 }
 
@@ -1259,7 +1329,7 @@ mod board {
     fn to_key_set(mana_abilities: &ManaAbilitiesSet) -> ManaAbilityKeySet {
         let mut output = ManaAbilityKeySet::new();
 
-        for ability in mana_abilities.iter() {
+        for ability in mana_abilities.unordered_iter() {
             let key = ManaAbilityKey {
                 kind: ability.permanent_kind,
                 index: ability.ability_index,
@@ -1551,9 +1621,9 @@ mod board {
                 let mut current_board = self.clone();
 
                 // TODO? is it worth it to avoid doing all the work
-                // up front by making this a custom iterator?
-                for mana_ability in mana_abilities {
-                    if let Ok(board) = apply_mana_ability(&current_board, mana_ability) {
+                // of calling apply_mana_ability and doing all these loops up front by making this a custom iterator?
+                for mana_ability in mana_abilities.ordered_iter() {
+                    if let Ok(board) = apply_mana_ability(&current_board, &mana_ability) {
                         current_board = board;
                     }
                 }
