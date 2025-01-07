@@ -791,6 +791,9 @@ mod board {
         }
     }
 
+    /// This is exceeded in certain scenarios, but almost always this will be enough .
+    const MANA_ABILITIES_COUNT_ESTIMATE: usize = 2;
+
     fn mana_abilities<'board>(
         board: &'board Board,
         permanent_index: PermanentIndex,
@@ -1062,7 +1065,7 @@ mod board {
     }
 
     #[cfg(test)]
-    mod mana_abilty_subsets_works {
+    mod mana_ability_subsets_works {
         use super::*;
 
         const ABILITY: ManaAbility = ManaAbility {
@@ -1256,13 +1259,15 @@ mod board {
         }
     }
 
-    fn mana_abilty_subsets(board: &Board) -> ManaAbilitiesSubsets {
-        let all_mana_abilities =
-            board.permanents
-                .iter()
-                .enumerate()
-                .flat_map(|(i, p)| mana_abilities(board, i, p))
-                .collect::<Vec<_>>();
+    fn mana_ability_subsets(board: &Board) -> ManaAbilitiesSubsets {
+        let capacity_estimate = board.permanents.len() * MANA_ABILITIES_COUNT_ESTIMATE;
+        let mut all_mana_abilities = Vec::with_capacity(capacity_estimate);
+
+        for (i, p) in board.permanents.iter().enumerate() {
+            for a in mana_abilities(board, i, p) {
+                all_mana_abilities.push(a);
+            }
+        }
 
         let len = all_mana_abilities.len();
 
@@ -1605,11 +1610,11 @@ mod board {
         }
 
         pub fn mana_spends(&self) -> impl Iterator<Item = Self> {
-            let mut all_mana_abilty_subsets = mana_abilty_subsets(self);
+            let mut all_mana_ability_subsets = mana_ability_subsets(self);
 
             let mut output = BTreeMap::new();
 
-            while let Some(mana_abilities) = all_mana_abilty_subsets.next() {
+            while let Some(mana_abilities) = all_mana_ability_subsets.next() {
                 let key = to_key_set(&mana_abilities);
 
                 if output.contains_key(&key) {
