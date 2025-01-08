@@ -854,7 +854,7 @@ mod board {
 
     /// A Mana Ability that can be played on the battlefield, including the costs.
     #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    struct ManaAbility {
+    pub struct ManaAbility {
         kind: ManaAbilityKind,
         ability_index: ManaAbilityIndex,
         permanent_kind: PermanentKind,
@@ -863,7 +863,7 @@ mod board {
 
     type ApplyManaAbilityError = ();
 
-    fn apply_mana_ability(board: &Board, mana_ability: &ManaAbility) -> Result<Board, ApplyManaAbilityError> {
+    pub fn apply_mana_ability(board: &Board, mana_ability: &ManaAbility) -> Result<Board, ApplyManaAbilityError> {
         macro_rules! tap_for {
             ($board: ident $(,)? $pool: expr) => {
                 $board.tap_permanent_at(mana_ability.permanent_index)
@@ -967,7 +967,7 @@ mod board {
 
     // Making this streaming iterator instead of a flat list, to avoid using 2^n memory, seems worth it.
     #[derive(Debug)]
-    struct ManaAbilitiesSubsets {
+    pub struct ManaAbilitiesSubsets {
         current_set: ManaAbilitiesSet,
         index_set: IndexSet,
         all: AllManaAbilities,
@@ -1058,7 +1058,7 @@ mod board {
             }
         }
 
-        fn next(&mut self) -> Option<&ManaAbilitiesSet> {
+        pub fn next(&mut self) -> Option<&ManaAbilitiesSet> {
             self.advance();
             self.get()
         }
@@ -1259,7 +1259,7 @@ mod board {
         }
     }
 
-    fn mana_ability_subsets(board: &Board) -> ManaAbilitiesSubsets {
+    pub fn mana_ability_subsets(board: &Board) -> ManaAbilitiesSubsets {
         let capacity_estimate = board.permanents.len() * MANA_ABILITIES_COUNT_ESTIMATE;
         let mut all_mana_abilities = Vec::with_capacity(capacity_estimate);
 
@@ -1285,8 +1285,8 @@ mod board {
     /// should have different keys, two identical untapped Swamps should have
     /// the same key, but a Swamp enchanted with a Kudzu should have a different key.
     /// Two different mana abilities on the same permanent should also have different keys
-    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-    struct ManaAbilityKey {
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct ManaAbilityKey {
         kind: PermanentKind,
         index: ManaAbilityIndex,
         // TODO other fields as needed
@@ -1329,9 +1329,9 @@ mod board {
     }
 
     type ManaAbilityCount = u8;
-    type ManaAbilityKeySet = BTreeMap<ManaAbilityKey, ManaAbilityCount>;
+    pub type ManaAbilityKeySet = BTreeMap<ManaAbilityKey, ManaAbilityCount>;
 
-    fn to_key_set(mana_abilities: &ManaAbilitiesSet) -> ManaAbilityKeySet {
+    pub fn to_key_set(mana_abilities: &ManaAbilitiesSet) -> ManaAbilityKeySet {
         let mut output = ManaAbilityKeySet::new();
 
         for ability in mana_abilities.unordered_iter() {
@@ -1608,86 +1608,6 @@ mod board {
 
             Ok(mana_pools.map(|mana_pool| self.with_mana_pool(mana_pool)))
         }
-
-        pub fn mana_spends(&self) -> impl Iterator<Item = Self> {
-            let mut all_mana_ability_subsets = mana_ability_subsets(self);
-
-            let mut output = BTreeMap::new();
-
-            while let Some(mana_abilities) = all_mana_ability_subsets.next() {
-                let key = to_key_set(&mana_abilities);
-
-                if output.contains_key(&key) {
-                    // Avoid bothering to track identical options
-                    // like 6 different orders for 3 Swamps.
-                    continue
-                }
-
-                let mut current_board = self.clone();
-
-                // TODO? is it worth it to avoid doing all the work
-                // of calling apply_mana_ability and doing all these loops up front by making this a custom iterator?
-                for mana_ability in mana_abilities.ordered_iter() {
-                    if let Ok(board) = apply_mana_ability(&current_board, &mana_ability) {
-                        current_board = board;
-                    }
-                }
-
-                output.insert(key, current_board);
-            }
-
-            output.into_values()
-        }
-    }
-
-    #[cfg(test)]
-    mod mana_spends_works {
-        use super::*;
-        use card::Card::*;
-        use mana::mp;
-        use permanent::INITIAL_TURN_NUMBER;
-
-        const TURN_NUMBER: TurnNumber = INITIAL_TURN_NUMBER;
-
-        #[test]
-        fn on_a_default_board() {
-            let board = Board::default();
-
-            let vec = board.mana_spends().map(|b| b.mana_pool).collect::<Vec<_>>();
-
-            // Not spending any mana counts as an option.
-            assert_eq!(vec, vec![mp!()]);
-        }
-
-        #[test]
-        fn on_a_single_swamp() {
-            let mut board = Board::default();
-
-            board = board.enter(Permanent::card(Swamp, TURN_NUMBER));
-
-            assert!(board.permanents.len() > 0, "pre-condition failure");
-
-            let vec = board.mana_spends().map(|b| b.mana_pool).collect::<Vec<_>>();
-
-            // We should have the option to not tap the swamp
-            // and the option to tap the swamp.
-            // This is because we call mana_spends in cases where we might have a 1 drop in hand.
-            assert_eq!(vec, vec![mp!(), mp!(B)]);
-        }
-
-        #[test]
-        fn on_two_swamps() {
-            let mut board = Board::default();
-
-            board = board.enter(Permanent::card(Swamp, TURN_NUMBER));
-            board = board.enter(Permanent::card(Swamp, TURN_NUMBER));
-
-            assert!(board.permanents.len() >= 2, "pre-condition failure");
-
-            let vec = board.mana_spends().map(|b| b.mana_pool).collect::<Vec<_>>();
-
-            assert_eq!(vec, vec![mp!(), mp!(B), mp!(B B)]);
-        }
     }
 }
 use board::Board;
@@ -1771,19 +1691,6 @@ impl State {
     fn with_additional_mana(&self, additional_mana_pool: ManaPool) -> Result<Self, mana::AddError> {
         self.board.with_additional_mana(additional_mana_pool)
             .map(|b| self.with_board(b))
-    }
-
-    fn mana_spends(&self) -> impl Iterator<Item = Self> + '_ {
-        // Theoretically there could be mana spends involving the
-        // hand or library.
-        self.board
-            .mana_spends()
-            .map(|board| {
-                State {
-                    board,
-                    ..self.clone()
-                }
-            })
     }
 
     fn attempt_to_cast(
@@ -1999,7 +1906,36 @@ impl State {
         // of cards to restrict the mana_spends we consider, though
         // that may or may not be faster than trying them all quickly
         if !castable_card_indexes.is_empty() {
-            for spend_state in self.mana_spends() {
+            let mut all_mana_ability_subsets = board::mana_ability_subsets(&self.board);
+
+            let mut seen_mana_abilities = HashSet::with_capacity(16);
+
+            while let Some(mana_abilities) = all_mana_ability_subsets.next() {
+                let key = board::to_key_set(&mana_abilities);
+
+                if seen_mana_abilities.contains(&key) {
+                    // Avoid bothering to track identical options
+                    // like 6 different orders for 3 Swamps.
+                    continue
+                }
+
+                seen_mana_abilities.insert(key);
+
+                let mut current_board = self.board.clone();
+
+                // TODO? is it worth it to avoid doing all the work
+                // of calling apply_mana_ability and doing all these loops up front by making this a custom iterator?
+                for mana_ability in mana_abilities.ordered_iter() {
+                    if let Ok(board) = board::apply_mana_ability(&current_board, &mana_ability) {
+                        current_board = board;
+                    }
+                }
+
+                let spend_state = State {
+                    board: current_board,
+                    ..self.clone()
+                };
+
                 for card_index in &castable_card_indexes {
                     match spend_state.attempt_to_cast(*card_index) {
                         Ok(cast_states) => {
@@ -2903,7 +2839,7 @@ mod calculate_works {
         let outcomes = calculate(Spec{ draw: NO_SHUFFLING, pet: Goldfish, turn_bounds: StopAt(7) }, &_deck).unwrap();
 
         for outcome in outcomes {
-            let does_match = matches!(outcome, OutcomeAt{ outcome: Loss, ..});
+            let does_match = matches!(outcome, OutcomeAt{ outcome: Lose, ..});
 
             assert!(does_match);
         }
@@ -2930,7 +2866,7 @@ mod calculate_works {
         let outcomes = calculate(Spec{ draw: NO_SHUFFLING, pet: Goldfish, turn_bounds: StopAt(7) }, &_deck).unwrap();
 
         for outcome in outcomes {
-            let does_match = matches!(outcome, OutcomeAt{ outcome: Loss, ..});
+            let does_match = matches!(outcome, OutcomeAt{ outcome: Lose, ..});
 
             assert!(does_match);
         }
