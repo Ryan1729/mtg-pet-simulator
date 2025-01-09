@@ -101,32 +101,31 @@ impl ManaPool {
         while cost.generic > 0 {
             cost.generic = cost.generic.checked_sub(1).ok_or(())?;
 
-            output = output
-                .into_iter()
-                .flat_map(|current| {
-                    let mut subbed = Vec::with_capacity(6);
+            let mut temp = output.clone();
+            // This is still taking the most time on the flamegraph, specifically this dropping here, it seems.
+            // Options could be switching to a hashset, and maybe swaping instead of clearing
+            // or arena allocating multiple vecs and only returning a pointer to the final one
+            output.clear();
 
-                    if let Some(colorless) = current.colorless.checked_sub(1) {
-                        subbed.push(
-                            Self {
-                                colorless,
-                                ..current
-                            }
-                        );
-                    }
+            for current in temp.into_iter() {
+                if let Some(colorless) = current.colorless.checked_sub(1) {
+                    output.insert(
+                        Self {
+                            colorless,
+                            ..current
+                        }
+                    );
+                }
 
-                    if let Some(black) = current.black.checked_sub(1) {
-                        subbed.push(
-                            Self {
-                                black,
-                                ..current
-                            }
-                        );
-                    }
-
-                    subbed.into_iter()
-                })
-                .collect::<Set<_>>();
+                if let Some(black) = current.black.checked_sub(1) {
+                    output.insert(
+                        Self {
+                            black,
+                            ..current
+                        }
+                    );
+                }
+            }
         }
 
         if output.is_empty() {
