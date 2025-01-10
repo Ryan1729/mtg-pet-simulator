@@ -932,6 +932,12 @@ mod board {
                 }
             }
 
+            pub fn with_capacity_and_seed(capacity: usize, seed: usize) -> Self {
+                Self{
+                    set: ManaAbilitiesSetInner::with_capacity_and_hasher(capacity, RandomState::with_seed(seed)),
+                }
+            }
+
             pub fn unordered_iter(&self) -> impl Iterator<Item = &ManaAbility> {
                 self.set.iter()
             }
@@ -964,6 +970,7 @@ mod board {
     type AllManaAbilities = Box<[ManaAbility]>;
 
     type ManaAbilitiesKeysHash = u64;
+    type ManaAbilitiesSubsetsSeen = HashSet<Vec<ManaAbilitiesKey>, RandomState>;
 
     // Making this streaming iterator instead of a flat list, to avoid using 2^n memory, seems worth it.
     #[derive(Debug)]
@@ -974,17 +981,21 @@ mod board {
         last_advance_was_skipped: bool,
         // This bit uses 2^n memory again worst case, but currently seems like the best way to
         // eliminate some duplicates we want to eliminate.
-        seen: HashSet<Vec<ManaAbilitiesKey>, RandomState>,
+        seen: ManaAbilitiesSubsetsSeen,
     }
 
     impl From<AllManaAbilities> for ManaAbilitiesSubsets {
         fn from(all: AllManaAbilities) -> Self {
+            let len = all.len();
+
+            let seen_state = RandomState::with_seed(0xb0a710ad);
+
             Self {
-                current_set: <_>::default(),
+                current_set: ManaAbilitiesSet::with_capacity_and_seed(len, 0x5ca1ab1e),
                 index_set: <_>::default(),
                 all,
                 last_advance_was_skipped: <_>::default(),
-                seen: <_>::default(),
+                seen: ManaAbilitiesSubsetsSeen::with_capacity_and_hasher(len, seen_state),
             }
         }
     }
@@ -1034,8 +1045,6 @@ mod board {
                 let mut seen_buffer = Vec::with_capacity(self.current_set.len());
 
                 for el in self.current_set.unordered_iter(){
-                    // This iter shows up on the flamegraph! I think we want a datastructure with better memory
-                    // locality. A hashset seems like the obvious choice
                     seen_buffer.push((el.kind, el.permanent_kind));
                 }
 
