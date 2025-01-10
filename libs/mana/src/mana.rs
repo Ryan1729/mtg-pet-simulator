@@ -86,7 +86,6 @@ impl ManaPool {
     }
 
     pub fn spend(self, mut cost: ManaCost) -> Result<impl Iterator<Item = Self>, SpendError> {
-        type Set<A> = std::collections::BTreeSet<A>;
         let besides_generic = Self {
             //white: self.white.checked_sub(cost.white).ok_or(())?,
             //blue: self.blue.checked_sub(cost.blue).ok_or(())?,
@@ -96,20 +95,20 @@ impl ManaPool {
             colorless: self.colorless.checked_sub(cost.colorless).ok_or(())?,
         };
 
-        let mut output: Set<Self> = Set::from([besides_generic]);
+        let mut output: Vec<Self> = Vec::from([besides_generic]);
 
         while cost.generic > 0 {
             cost.generic = cost.generic.checked_sub(1).ok_or(())?;
 
+            // One option if this function shows up on the profile again is an arena allocating multiple vecs and only
+            // returning a pointer to the final one. This would avoid the copying.
             let mut temp = output.clone();
-            // This is still taking the most time on the flamegraph, specifically this dropping here, it seems.
-            // Options could be switching to a hashset, and maybe swaping instead of clearing
-            // or arena allocating multiple vecs and only returning a pointer to the final one
+
             output.clear();
 
             for current in temp.into_iter() {
                 if let Some(colorless) = current.colorless.checked_sub(1) {
-                    output.insert(
+                    output.push(
                         Self {
                             colorless,
                             ..current
@@ -118,7 +117,7 @@ impl ManaPool {
                 }
 
                 if let Some(black) = current.black.checked_sub(1) {
-                    output.insert(
+                    output.push(
                         Self {
                             black,
                             ..current
@@ -131,6 +130,9 @@ impl ManaPool {
         if output.is_empty() {
             return Err(())
         }
+
+        output.sort();
+        output.dedup();
 
         Ok(output.into_iter())
     }
