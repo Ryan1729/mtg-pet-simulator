@@ -1713,6 +1713,8 @@ impl State {
 
         let mut output: Vec<Self> = Vec::with_capacity(/* Not a realy great bound */ cast_options.len());
 
+        let mut temp = Vec::with_capacity(16);
+
         for cast_option in cast_options {
             let Ok(new_boards) = self.board.spend(cast_option.mana_cost) else {
                 continue
@@ -1727,26 +1729,26 @@ impl State {
                     continue
                 };
 
-                let mapped_states = new_states
-                    .flat_map(|unmapped_state| {
-                        // We don't want all the states between the individual effects!
-                        // But, we do want to allow multiple states to be returned from each
-                        // stage, in case there are choices as part of them. To summarize,
-                        // we only want the possible end states after the effect list is done,
-                        // but we do want all of them!
-                        // Thinking through Insatiable Avarice is probably a good example for this
-                        let mut output = vec![unmapped_state];
-                        for effect in cast_option.effects.iter() {
-                            output = output.into_iter().flat_map(move |s: State| {
-                                let applied: Result<std::vec::IntoIter<Self>, ()> = s.apply_effect(*effect);
-                                applied.unwrap_or_else(|_| vec![s].into_iter())
-                            }).collect();
+                for unmapped_state in new_states {
+                    // We don't want all the states between the individual effects!
+                    // But, we do want to allow multiple states to be returned from each
+                    // stage, in case there are choices as part of them. To summarize,
+                    // we only want the possible end states after the effect list is done,
+                    // but we do want all of them!
+                    // Thinking through Insatiable Avarice is probably a good example for this
+                    let mut mapped_states = vec![unmapped_state];
+                    for effect in cast_option.effects.iter() {
+                        // TODO would a memory arena be better?
+                        temp.clear();
+                        for s in mapped_states.into_iter() {
+                            let applied: Result<std::vec::IntoIter<Self>, ()> = s.apply_effect(*effect);
+                            temp.extend(applied.unwrap_or_else(|_| vec![s].into_iter()));
                         }
+                        mapped_states = temp.clone();
+                    }
 
-                        output
-                    });
-
-                output.extend(mapped_states);
+                    output.extend(mapped_states);
+                }
             }
         }
 
