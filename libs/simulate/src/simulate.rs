@@ -1917,7 +1917,7 @@ impl State {
         if !castable_card_indexes.is_empty() {
             let mut all_mana_ability_subsets = board::mana_ability_subsets(&self.board);
 
-            let mut seen_mana_abilities = HashSet::with_capacity(16);
+            let mut seen_mana_abilities: HashSet<_, ahash::RandomState> = HashSet::default();
 
             while let Some(mana_abilities) = all_mana_ability_subsets.next() {
                 let key = board::to_key_set(&mana_abilities);
@@ -2793,6 +2793,32 @@ mod calculate_works {
         ];
 
         let outcomes = calculate(Spec{ draw: NO_SHUFFLING, pet: Goldfish, turn_bounds: StopAt(7) }, &_deck).unwrap();
+
+        for outcome in outcomes {
+            let does_match = matches!(outcome, OutcomeAt{ outcome: Win, ..});
+
+            assert!(does_match);
+        }
+    }
+
+    #[test]
+    #[timeout(5000)]
+    fn on_fewer_non_basic_lands_and_cleric_stop_at_3() {
+        let _deck: [Card; 11] = [
+            StarscapeCleric,
+            StarscapeCleric,
+            StarscapeCleric,
+            StarscapeCleric,
+            Swamp,
+            MemorialToFolly,
+            TheDrossPits,
+            Swamp,
+            BlastZone,
+            SceneOfTheCrime,
+            HagraMauling,
+        ];
+
+        let outcomes = calculate(Spec{ draw: NO_SHUFFLING, pet: Goldfish, turn_bounds: StopAt(3) }, &_deck).unwrap();
 
         for outcome in outcomes {
             let does_match = matches!(outcome, OutcomeAt{ outcome: Win, ..});

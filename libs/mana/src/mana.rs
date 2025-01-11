@@ -10,6 +10,9 @@ pub enum ManaType {
 // 64k Mana ought to be enough for anybody!
 pub type ManaAmount = u16;
 
+/// The number of fields `ManaPool` has.
+const MANA_POOL_TYPE_COUNT: usize = 2;
+
 #[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ManaPool {
     //pub white: ManaAmount,
@@ -95,7 +98,8 @@ impl ManaPool {
             colorless: self.colorless.checked_sub(cost.colorless).ok_or(())?,
         };
 
-        let mut output: Vec<Self> = Vec::from([besides_generic]);
+        let mut output: Vec<Self> = Vec::with_capacity(1 + cost.generic as usize * MANA_POOL_TYPE_COUNT);
+        output.push(besides_generic);
 
         while cost.generic > 0 {
             cost.generic = cost.generic.checked_sub(1).ok_or(())?;
