@@ -8,11 +8,12 @@ use ntest::timeout;
 
 use card::Card::{self, *};
 use equiv::{Equiv, LooseCmp};
+use fast_hash::{HashSet, HashSetExt};
 use mana::{ManaCost, ManaPool};
 use permanent::{Permanent, TurnNumber, INITIAL_TURN_NUMBER};
 
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, BTreeMap, HashSet};
+use std::collections::{BTreeSet, BTreeMap};
 use std::iter::ExactSizeIterator;
 
 type PermutationNumber = u128;
@@ -166,7 +167,7 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
         }
     }
 
-    let mut seen = HashSet::with_capacity(64);
+    let mut seen = HashSet::with_capacity_and_seed(64, 0xca55e77e);
     macro_rules! push_state {
         ($state: expr) => ({
             let s = $state;
@@ -448,12 +449,13 @@ const INDEX_SET_MAX_ELEMENTS: usize = IndexSet::BITS as _;
 mod board {
     use card::Card;
     use equiv::{Equiv, LooseCmp};
+    use fast_hash::{HashSet, HashSetExt};
     use mana::{ManaCost, ManaPool, SpendError};
     use permanent::{Permanent, PermanentKind, TurnNumber};
 
     use super::{Ability, Abilities, Effect, IndexSet, INDEX_SET_MAX_ELEMENTS, SpreeIter};
 
-    use std::collections::{BTreeMap, BTreeSet, HashSet};
+    use std::collections::{BTreeMap, BTreeSet};
 
     // Keep things private because we suspect we'll want lots of different
     // ways to query what is on the board, and that we will care about
@@ -887,14 +889,10 @@ mod board {
         }
     }
 
-    use ahash::{AHasher, RandomState, HashSetExt};
-
     mod mana_abilities_set {
         use super::*;
 
-        use ahash::{AHasher, RandomState, HashSetExt};
-
-        type ManaAbilitiesSetInner = HashSet<ManaAbility, RandomState>;
+        type ManaAbilitiesSetInner = HashSet<ManaAbility>;
 
         #[derive(Debug, Default)]
         pub struct ManaAbilitiesSet {
@@ -915,7 +913,7 @@ mod board {
 
         impl <const N: usize> From<[ManaAbility; N]> for ManaAbilitiesSet {
             fn from(arr: [ManaAbility; N]) -> Self {
-                let mut set = ManaAbilitiesSetInner::with_capacity(arr.len());
+                let mut set = ManaAbilitiesSetInner::with_capacity_and_seed(arr.len(), Self::SEED);
 
                 for e in arr {
                     set.insert(e);
@@ -926,15 +924,17 @@ mod board {
         }
 
         impl ManaAbilitiesSet {
+            const SEED: usize = 0xba5ed;
+
             pub fn new() -> Self {
                 Self{
-                    set: ManaAbilitiesSetInner::with_capacity(16),
+                    set: ManaAbilitiesSetInner::with_capacity_and_seed(16, Self::SEED),
                 }
             }
 
             pub fn with_capacity_and_seed(capacity: usize, seed: usize) -> Self {
                 Self{
-                    set: ManaAbilitiesSetInner::with_capacity_and_hasher(capacity, RandomState::with_seed(seed)),
+                    set: ManaAbilitiesSetInner::with_capacity_and_seed(16, Self::SEED),
                 }
             }
 
@@ -970,7 +970,7 @@ mod board {
     type AllManaAbilities = Box<[ManaAbility]>;
 
     type ManaAbilitiesKeysHash = u64;
-    type ManaAbilitiesSubsetsSeen = HashSet<Vec<ManaAbilitiesKey>, RandomState>;
+    type ManaAbilitiesSubsetsSeen = HashSet<Vec<ManaAbilitiesKey>>;
 
     // Making this streaming iterator instead of a flat list, to avoid using 2^n memory, seems worth it.
     #[derive(Debug)]
@@ -988,14 +988,12 @@ mod board {
         fn from(all: AllManaAbilities) -> Self {
             let len = all.len();
 
-            let seen_state = RandomState::with_seed(0xb0a710ad);
-
             Self {
                 current_set: ManaAbilitiesSet::with_capacity_and_seed(len, 0x5ca1ab1e),
                 index_set: <_>::default(),
                 all,
                 last_advance_was_skipped: <_>::default(),
-                seen: ManaAbilitiesSubsetsSeen::with_capacity_and_hasher(len, seen_state),
+                seen: ManaAbilitiesSubsetsSeen::with_capacity_and_seed(len, 0xb0a710ad),
             }
         }
     }
@@ -1919,7 +1917,7 @@ impl State {
         if !castable_card_indexes.is_empty() {
             let mut all_mana_ability_subsets = board::mana_ability_subsets(&self.board);
 
-            let mut seen_mana_abilities: HashSet<_, ahash::RandomState> = HashSet::default();
+            let mut seen_mana_abilities: HashSet<_> = HashSet::default();
 
             while let Some(mana_abilities) = all_mana_ability_subsets.next() {
                 let key = board::to_key_set(&mana_abilities);

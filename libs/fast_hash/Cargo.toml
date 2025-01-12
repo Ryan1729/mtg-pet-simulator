@@ -1,0 +1,11 @@
+[package]
+name = "fast_hash"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "./src/fast_hash.rs"
+
+
+[dependencies]
+ahash = "0.8.11"

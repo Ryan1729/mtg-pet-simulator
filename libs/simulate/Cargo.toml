@@ -7,13 +7,15 @@ edition = "2021"
 path = "./src/simulate.rs"
 
 [dependencies]
-ahash = "0.8.11"
 
 [dependencies.card]
 path = "../card"
 
 [dependencies.equiv]
 path = "../equiv"
+
+[dependencies.fast_hash]
+path = "../fast_hash"
 
 [dependencies.mana]
 path = "../mana"
