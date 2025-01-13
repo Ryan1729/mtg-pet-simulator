@@ -1705,13 +1705,15 @@ impl State {
         card_index: CardIndex,
     ) -> Result<impl Iterator<Item = Self>, AttemptToCastError> {
         use AttemptToCastError::*;
+        use arena::{Arena, ArenaVec};
+
         let card = *self.hand.get(card_index).ok_or(NoCard)?;
 
         let cast_options = self.cast_options(card);
 
-        let mut output: Vec<Self> = Vec::with_capacity(/* Not a realy great bound */ cast_options.len());
+        let arena = Arena::with_capacity(/* Not a realy great bound */ cast_options.len());
 
-        let mut temp = Vec::with_capacity(16);
+        let mut output: Vec<Self> = Vec::with_capacity(/* Not a realy great bound */ cast_options.len());
 
         for cast_option in cast_options {
             let Ok(new_boards) = self.board.spend(cast_option.mana_cost) else {
@@ -1734,18 +1736,21 @@ impl State {
                     // we only want the possible end states after the effect list is done,
                     // but we do want all of them!
                     // Thinking through Insatiable Avarice is probably a good example for this
-                    let mut mapped_states = vec![unmapped_state];
+                    let effect_count = cast_option.effects.len();
+
+                    let mut mapped_states = ArenaVec::with_capacity_in(effect_count, &arena);
+                    mapped_states.push(unmapped_state);
                     for effect in cast_option.effects.iter() {
-                        // TODO would a memory arena be better?
-                        temp.clear();
+                        let mut temp = ArenaVec::with_capacity_in(effect_count, &arena);
                         for s in mapped_states.into_iter() {
                             let applied: Result<std::vec::IntoIter<Self>, ()> = s.apply_effect(*effect);
                             temp.extend(applied.unwrap_or_else(|_| vec![s].into_iter()));
                         }
-                        mapped_states = temp.clone();
+                        // Temp will get cleaned up when the arena is
+                        mapped_states = temp;
                     }
 
-                    output.extend(mapped_states);
+                    output.extend(mapped_states.into_iter());
                 }
             }
         }

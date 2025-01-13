@@ -1,4 +1,4 @@
-workspace = { members = ["libs/card", "libs/equiv", "libs/fast_hash", "libs/mana", "libs/permanent", "libs/simulate"] }
+workspace = { members = [ "libs/arena","libs/card", "libs/equiv", "libs/fast_hash", "libs/mana", "libs/permanent", "libs/simulate"] }
 [package]
 name = "mtg-pet-simulator"
 version = "0.1.0"

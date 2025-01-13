@@ -8,6 +8,9 @@ path = "./src/simulate.rs"
 
 [dependencies]
 
+[dependencies.arena]
+path = "../arena"
+
 [dependencies.card]
 path = "../card"
 
