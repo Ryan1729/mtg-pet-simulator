@@ -6,6 +6,7 @@
 #[cfg(test)]
 use ntest::timeout;
 
+use arena::Arena;
 use card::Card::{self, *};
 use equiv::{Equiv, LooseCmp};
 use fast_hash::{HashSet, HashSetExt};
@@ -713,6 +714,7 @@ mod board {
 
         #[must_use]
         pub fn enter(&self, permanent: Permanent) -> Self {
+            // TODO put onto an arena, so we can avoid more expensive allocation inside this push function
             Board {
                 permanents: push(
                     &self.permanents,
@@ -1702,6 +1704,7 @@ impl State {
 
     fn attempt_to_cast(
         &self,
+        arena: &Arena,
         card_index: CardIndex,
     ) -> Result<impl Iterator<Item = Self>, AttemptToCastError> {
         use AttemptToCastError::*;
@@ -1710,8 +1713,6 @@ impl State {
         let card = *self.hand.get(card_index).ok_or(NoCard)?;
 
         let cast_options = self.cast_options(card);
-
-        let arena = Arena::with_capacity(/* Not a realy great bound */ cast_options.len());
 
         let mut output: Vec<Self> = Vec::with_capacity(/* Not a realy great bound */ cast_options.len());
 
@@ -1950,8 +1951,10 @@ impl State {
                     ..self.clone()
                 };
 
+                let arena = Arena::with_capacity(/* Not a realy great bound */ 1024);
+
                 for card_index in &castable_card_indexes {
-                    match spend_state.attempt_to_cast(*card_index) {
+                    match spend_state.attempt_to_cast(&arena, *card_index) {
                         Ok(cast_states) => {
                             for unwrapped_cast_state in cast_states {
                                 let cast_state = Equiv(unwrapped_cast_state);
