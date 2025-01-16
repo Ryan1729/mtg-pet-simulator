@@ -10,9 +10,29 @@ impl Arena {
     }
 }
 
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ArenaVec<'arena, T> {
     vec: bumpalo::collections::vec::Vec<'arena, T>,
 }
+
+#[macro_export]
+macro_rules! _vec {
+    (=> $arena: expr) => {
+        $crate::ArenaVec::with_capacity_in(0, $arena)
+    };
+    ($($exprs: expr),* $(,)? => $arena: expr) => ({
+        // TODO is there a way to get the coutn without evaluating the expressions twice?
+        let count = 0;
+        let mut output = $crate::ArenaVec::with_capacity_in(count, $arena);
+
+        $(
+            output.push($exprs);
+        ),*
+
+        output
+    })
+}
+pub use _vec as vec;
 
 impl<'arena, T: 'arena> IntoIterator for ArenaVec<'arena, T> {
     type Item = T;
