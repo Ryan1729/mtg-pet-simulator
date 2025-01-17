@@ -129,12 +129,14 @@ mod heap_wrapper_works {
 
     #[test]
     fn when_checking_equality() {
+        let arena = Arena::with_capacity(0);
+
         let hand = Hand::default();
         let deck = Deck::default();
 
         assert_eq!(
-            HeapWrapper(State::new(hand.clone(), deck.clone())),
-            HeapWrapper(State::new(hand.clone(), deck.clone())),
+            HeapWrapper(State::new(&arena, hand.clone(), deck.clone())),
+            HeapWrapper(State::new(&arena, hand.clone(), deck.clone())),
         );
     }
 }
@@ -183,7 +185,9 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
         })
     }
 
-    push_state!(State::new(hand, deck));
+    let arena = Arena::with_capacity(1 << 12);
+
+    push_state!(State::new(&arena, hand, deck));
 
     match spec.pet {
         Goldfish => {
@@ -480,7 +484,51 @@ mod board {
                 permanents,
             }
         }
+
+        #[must_use]
+        pub fn enter(&self, arena: &Arena, permanent: Permanent) -> Self {
+            Board {
+                permanents: push(
+                    arena,
+                    self.permanents.slice(),
+                    permanent,
+                ),
+                ..self.clone()
+            }
+        }
     }
+
+    #[macro_export]
+    macro_rules! _board {
+        (=> $arena: expr) => {
+            $crate::Board::in($arena)
+        };
+        ($($permanents: expr),* $(,)? => $arena: expr) => ({
+            let arena = &$arena;
+            let mut board = $crate::Board::in(arena);
+
+            $(
+                board.enter(arena, $permanents);
+            ),*
+
+            board
+        });
+        ($($permanents: expr),* $(,)?) => ({
+            // TODO Is there a way to get the count without evaluating the expressions twice?
+            // Also, maybe it's worth just evaluating these particular ones, since they are 
+            // probably made with cheap/easy to optimize out expressions?
+            let count = 0;
+            let arena = arena::Arena::with_capacity(count);
+            let mut board = $crate::Board::in(&arena);
+
+            $(
+                board.enter(&arena, $permanents);
+            ),*
+
+            (board, arena)
+        });
+    }
+    pub use _board as board;
 
     use std::cmp::Ordering;
 
@@ -579,7 +627,7 @@ mod board {
         fn on_these_permuted_examples() {
              let mut arena = Arena::with_capacity(128);
 
-             let base = Board::default();
+             let base = Board::in(&arena);
 
              let extra_tapped_swamp = Board {
                 mana_pool: ManaPool {
@@ -732,18 +780,6 @@ mod board {
                 mana_pool: self.mana_pool.add(additional_mana_pool)?,
                 ..self.clone()
             })
-        }
-
-        #[must_use]
-        pub fn enter(&self, arena: &Arena, permanent: Permanent) -> Self {
-            Board {
-                permanents: push(
-                    arena,
-                    self.permanents.slice(),
-                    permanent,
-                ),
-                ..self.clone()
-            }
         }
     }
 
@@ -1641,7 +1677,7 @@ mod board {
         }
     }
 }
-use board::Board;
+use board::{Board, board};
 
 
 #[derive(Copy, Clone, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -1696,10 +1732,13 @@ struct State {
 }
 
 impl State {
-    fn new(hand: Hand, deck: Deck) -> Self {
+    fn new(arena: &Arena, hand: Hand, deck: Deck) -> Self {
+        // TODO Would it be a better use of memory to stash the arena in the `State`,so that we free more often?
+        // This would imply needing to write custom `Hash` and `PartialEq` implementations that ignore the arena.
+        // Another option is a new type that has the arena in it that we use some of the time.
         State {
             hand,
-            board: Board::default(),
+            board: Board::in(arena),
             deck,
             turn_number: INITIAL_TURN_NUMBER,
             step: Step::default(),
@@ -1853,11 +1892,13 @@ mod equiv_state_works {
 
         let mut arena = Arena::with_capacity(128);
 
-        let board1 = Board::default()
-            .enter(&arena, Permanent::card(Swamp, 0).tapped())
-            .enter(&arena, Permanent::card(Swamp, 1).tapped())
-            .enter(&arena, Permanent::card(Swamp, 2).tapped())
-            .enter(&arena, Permanent::card(StarscapeCleric, 2))
+        let board1 = board!(
+            Permanent::card(Swamp, 0).tapped(),
+            Permanent::card(Swamp, 1).tapped(),
+            Permanent::card(Swamp, 2).tapped(),
+            Permanent::card(StarscapeCleric, 2),
+            => arena
+        )
             .with_mana_pool(
                 ManaPool {
                     black: 1,
@@ -1865,11 +1906,13 @@ mod equiv_state_works {
                 }
             );
 
-        let board2 = Board::default()
-            .enter(&arena, Permanent::card(Swamp, 0).tapped())
-            .enter(&arena, Permanent::card(Swamp, 1).tapped())
-            .enter(&arena, Permanent::card(Swamp, 2))
-            .enter(&arena, Permanent::card(StarscapeCleric, 2));
+        let board2 = board!(
+            Permanent::card(Swamp, 0).tapped(),
+            Permanent::card(Swamp, 1).tapped(),
+            Permanent::card(Swamp, 2),
+            Permanent::card(StarscapeCleric, 2),
+            => arena
+        );
 
         let s1 = Equiv(State {
             hand: hand.clone(),
@@ -1899,24 +1942,27 @@ mod equiv_state_works {
         let mut arena = Arena::with_capacity(128);
 
         let needle = Equiv(
-            Board::default()
+            board!(
+                Permanent::card(Swamp, 0).tapped(),
+                Permanent::card(Swamp, 1).tapped(),
+                Permanent::card(Swamp, 2).tapped(),
+                Permanent::card(StarscapeCleric, 2),
+            )
             .with_mana_pool(ManaPool {
                 black: 1,
                 colorless: 0,
             })
-            .enter(&arena, Permanent::card(Swamp, 0).tapped())
-            .enter(&arena, Permanent::card(Swamp, 1).tapped())
-            .enter(&arena, Permanent::card(Swamp, 2).tapped())
-            .enter(&arena, Permanent::card(StarscapeCleric, 2))
         );
 
         let haystack = vec![
             Equiv(
-                Board::default()
-                .enter(&arena, Permanent::card(Swamp, 0).tapped())
-                .enter(&arena, Permanent::card(Swamp, 1).tapped())
-                .enter(&arena, Permanent::card(Swamp, 2))
-                .enter(&arena, Permanent::card(StarscapeCleric, 2))
+                board!(
+                    Permanent::card(Swamp, 0).tapped(),
+                    Permanent::card(Swamp, 1).tapped(),
+                    Permanent::card(Swamp, 2),
+                    Permanent::card(StarscapeCleric, 2),
+                    => arena
+                ).0
             )
         ];
 
@@ -2021,13 +2067,13 @@ mod add_casting_states_works {
             let hand = vec![StarscapeCleric];
             let deck = vec![Swamp];
 
-            let board = Board::default()
-                .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
-                .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
-                .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
-                ;
+            let (board, arena) = board!(
+                Permanent::card(Swamp, INITIAL_TURN_NUMBER),
+                Permanent::card(Swamp, INITIAL_TURN_NUMBER),
+                Permanent::card(Swamp, INITIAL_TURN_NUMBER),
+            );
 
-            let state = State::new(hand, deck.into())
+            let state = State::new(&arena, hand, deck.into())
                 .with_board(board);
 
             let mut output = Vec::with_capacity(1);
@@ -2043,13 +2089,13 @@ mod add_casting_states_works {
             let hand = vec![StarscapeCleric, StarscapeCleric];
             let deck = vec![Swamp];
 
-            let board = Board::default()
-                .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
-                .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
-                .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
-                ;
+            let (board, arena) = board!(
+                Permanent::card(Swamp, INITIAL_TURN_NUMBER),
+                Permanent::card(Swamp, INITIAL_TURN_NUMBER),
+                Permanent::card(Swamp, INITIAL_TURN_NUMBER),
+            );
 
-            let state = State::new(hand, deck.into())
+            let state = State::new(&arena, hand, deck.into())
                 .with_board(board);
 
             let mut output = Vec::with_capacity(1);
@@ -2082,20 +2128,16 @@ mod add_casting_states_works {
             Swamp,
             Swamp,
         ].into();
+        let arena = Arena::with_capacity(16);
 
-        let mut state = State::new(hand, deck);
+        let mut state = State::new(&arena, hand, deck);
         state.step = MainPhase1;
-        state.board =
-            Board::default()
-            .enter(
-                Permanent::card(Swamp, INITIAL_TURN_NUMBER)
-            )
-            .enter(
-                Permanent::card(Swamp, INITIAL_TURN_NUMBER + 1)
-            )
-            .enter(
-                Permanent::card(Swamp, INITIAL_TURN_NUMBER + 2)
-            )
+        state.board = board!(
+            Permanent::card(Swamp, INITIAL_TURN_NUMBER),
+            Permanent::card(Swamp, INITIAL_TURN_NUMBER + 1),
+            Permanent::card(Swamp, INITIAL_TURN_NUMBER + 2),
+            => arena
+        )
             ;
         state.turn_number = INITIAL_TURN_NUMBER + 2;
         state.land_plays = 0;
@@ -2114,14 +2156,14 @@ mod add_casting_states_works {
         let hand = vec![Swamp, Swamp, StarscapeCleric, StarscapeCleric];
         let deck = vec![Swamp];
 
-        let board = Board::default()
-            .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
-            .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
-            .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
-            .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
-            ;
+        let (board, arena) = board!(
+            Permanent::card(Swamp, INITIAL_TURN_NUMBER),
+            Permanent::card(Swamp, INITIAL_TURN_NUMBER),
+            Permanent::card(Swamp, INITIAL_TURN_NUMBER),
+            Permanent::card(Swamp, INITIAL_TURN_NUMBER),
+        );
 
-        let state = State::new(hand, deck.into())
+        let state = State::new(&arena, hand, deck.into())
             .with_board(board);
 
         let mut output = Vec::with_capacity(1);
@@ -2132,12 +2174,13 @@ mod add_casting_states_works {
             output.clone().into_iter().map(|s| s.unwrap().board).collect::<Vec<_>>(),
             vec![
                 // We specifically want the 0 mana pool
-                Board::default()
-                    .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER).tapped())
-                    .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER).tapped())
-                    .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
-                    .enter(Permanent::card(Swamp, INITIAL_TURN_NUMBER))
-                    .enter(Permanent::card(StarscapeCleric, INITIAL_TURN_NUMBER))
+                board!(
+                    Permanent::card(Swamp, INITIAL_TURN_NUMBER).tapped(),
+                    Permanent::card(Swamp, INITIAL_TURN_NUMBER).tapped(),
+                    Permanent::card(Swamp, INITIAL_TURN_NUMBER),
+                    Permanent::card(Swamp, INITIAL_TURN_NUMBER),
+                    Permanent::card(StarscapeCleric, INITIAL_TURN_NUMBER),
+                ).0
             ],
         );
     }
@@ -2959,7 +3002,7 @@ mod calculate_step_works {
             Swamp,
         ];
 
-        let mut state = State::new(<_>::default(), deck.into());
+        let mut state = State::new(&arena, <_>::default(), deck.into());
         state.step = CombatDamage;
         state.board =
             Board::in(&arena)
@@ -2993,16 +3036,13 @@ mod calculate_step_works {
             Swamp,
         ];
 
-        let mut state = State::new(<_>::default(), deck.into());
+        let mut state = State::new(&arena, <_>::default(), deck.into());
         state.step = MainPhase2;
-        state.board =
-            Board::in(&arena)
-            .enter(
-                &arena,
-                Permanent::card(StarscapeCleric, INITIAL_TURN_NUMBER)
-                    .with_p_t(INITIAL_LIFE.try_into().unwrap(), INITIAL_LIFE.try_into().unwrap())
-            )
-            ;
+        state.board = board!(
+             Permanent::card(StarscapeCleric, INITIAL_TURN_NUMBER)
+                .with_p_t(INITIAL_LIFE.try_into().unwrap(), INITIAL_LIFE.try_into().unwrap())
+            => arena
+        ).0;
 
         let mut states = vec![state];
 
@@ -3049,30 +3089,13 @@ mod calculate_step_works {
             Swamp,
         ].into();
 
-        let mut state = State::new(hand, deck);
+        let mut state = State::new(&arena, hand, deck);
         state.step = MainPhase1;
-        state.board =
-            // TODO make a convenience macro that looks something like
-            // let (_arena, board) = board!(
-            //     Permanent::card(Swamp, INITIAL_TURN_NUMBER),
-            //     Permanent::card(Swamp, INITIAL_TURN_NUMBER + 1),
-            //     Permanent::card(Swamp, INITIAL_TURN_NUMBER + 2),
-            // );
-            // because that will be insulated against any futher changes, and clearer to read to boot!
-            Board::in(&arena)
-            .enter(
-                &arena,
-                Permanent::card(Swamp, INITIAL_TURN_NUMBER)
-            )
-            .enter(
-                &arena,
-                Permanent::card(Swamp, INITIAL_TURN_NUMBER + 1)
-            )
-            .enter(
-                &arena,
-                Permanent::card(Swamp, INITIAL_TURN_NUMBER + 2)
-            )
-            ;
+        state.board = board!(
+             Permanent::card(Swamp, INITIAL_TURN_NUMBER),
+             Permanent::card(Swamp, INITIAL_TURN_NUMBER + 1),
+             Permanent::card(Swamp, INITIAL_TURN_NUMBER + 2),
+        ).0;
         state.turn_number = INITIAL_TURN_NUMBER + 2;
         state.land_plays = 0;
 

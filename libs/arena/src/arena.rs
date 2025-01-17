@@ -21,7 +21,7 @@ macro_rules! _vec {
         $crate::ArenaVec::with_capacity_in(0, $arena)
     };
     ($($exprs: expr),* $(,)? => $arena: expr) => ({
-        // TODO is there a way to get the coutn without evaluating the expressions twice?
+        // TODO Is there a way to get the count without evaluating the expressions twice?
         let count = 0;
         let mut output = $crate::ArenaVec::with_capacity_in(count, $arena);
 
