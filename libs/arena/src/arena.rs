@@ -27,7 +27,7 @@ macro_rules! _vec {
 
         $(
             output.push($exprs);
-        ),*
+        )*
 
         output
     })
@@ -44,10 +44,33 @@ impl<'arena, T: 'arena> IntoIterator for ArenaVec<'arena, T> {
     }
 }
 
+impl<'a, 'bump, T> IntoIterator for &'a mut ArenaVec<'bump, T> {
+    type Item = &'a mut T;
+    type IntoIter = std::slice::IterMut<'a, T>;
+
+    fn into_iter(self) -> std::slice::IterMut<'a, T> {
+        (&mut self.vec).into_iter()
+    }
+}
+
 impl<'arena, T: 'arena> Extend<T> for ArenaVec<'arena, T> {
     #[inline]
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         self.vec.extend(iter)
+    }
+}
+
+impl<'arena, T: 'arena> std::ops::Deref for ArenaVec<'arena, T> {
+    type Target = [T];
+
+    fn deref(&self) -> &[T] {
+        self.vec.deref()
+    }
+}
+
+impl<'arena, T: 'arena> std::ops::DerefMut for ArenaVec<'arena, T> {
+    fn deref_mut(&mut self) -> &mut [T] {
+        self.vec.deref_mut()
     }
 }
 
@@ -60,5 +83,10 @@ impl <'arena, T> ArenaVec<'arena, T> {
 
     pub fn push(&mut self, thing: T) {
         self.vec.push(thing);
+    }
+
+    pub fn as_slice(&self) -> &[T] {
+        use std::ops::Deref;
+        self.deref()
     }
 }
