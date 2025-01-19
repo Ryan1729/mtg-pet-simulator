@@ -98,9 +98,9 @@ use CalculateError::*;
 const MAX_DECK_SIZE: u8 = 60;
 
 #[derive(Debug)]
-struct HeapWrapper(State);
+struct HeapWrapper<'arena>(State<'arena>);
 
-impl Ord for HeapWrapper {
+impl Ord for HeapWrapper<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
         // The BinaryHeap is a max-heap by default so reverse the order to put low opponents_life first
         other.0.opponents_life.cmp(&self.0.opponents_life)
@@ -109,19 +109,19 @@ impl Ord for HeapWrapper {
     }
 }
 
-impl PartialOrd for HeapWrapper {
+impl PartialOrd for HeapWrapper<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl PartialEq for HeapWrapper {
+impl PartialEq for HeapWrapper<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.cmp(other) == Ordering::Equal
     }
 }
 
-impl Eq for HeapWrapper {}
+impl Eq for HeapWrapper<'_> {}
 
 #[cfg(test)]
 mod heap_wrapper_works {
@@ -151,6 +151,9 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
             nth_ordered(deck, n)
         }
     }?;
+
+    let arena_base = Arena::with_capacity(1 << 12);
+    let arena = &arena_base;
 
     let mut states = std::collections::BinaryHeap::with_capacity(64);
 
@@ -185,16 +188,14 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
         })
     }
 
-    let arena = Arena::with_capacity(1 << 12);
-
-    push_state!(State::new(&arena, hand, deck));
+    push_state!(State::new(arena, hand, deck));
 
     match spec.pet {
         Goldfish => {
             let mut outcomes = Vec::with_capacity(64);
 
             while let Some(HeapWrapper(state)) = states.pop() {
-                let results = calculate_step(state);
+                let results = calculate_step(arena, state);
 
                 for result in results.into_vec().into_iter() {
                     let result: Result<State, OutcomeAt> = result;
@@ -246,9 +247,9 @@ mod non_empty {
     }
 }
 
-type StepOutput = non_empty::OwnedSlice<Result<State, OutcomeAt>>;
+type StepOutput<'arena> = non_empty::OwnedSlice<Result<State<'arena>, OutcomeAt>>;
 
-fn calculate_step<'arena>(arena: &Arena, mut state: State<'arena>) -> StepOutput {
+fn calculate_step<'arena>(arena: &'arena Arena, mut state: State<'arena>) -> StepOutput {
     macro_rules! one_path_forward {
         () => {
             return StepOutput::from(Ok(state))
@@ -297,7 +298,7 @@ fn calculate_step<'arena>(arena: &Arena, mut state: State<'arena>) -> StepOutput
 
                     output.push(Ok(State {
                         hand: h.to_vec(),
-                        board: state.board.enter(Permanent::card(card, state.turn_number)),
+                        board: state.board.enter(arena, Permanent::card(card, state.turn_number)),
                         land_plays: state.land_plays - 1,
                         ..state.clone()
                     }));
@@ -484,13 +485,15 @@ mod board {
                 permanents,
             }
         }
+    }
 
+    impl Board<'_> {
         #[must_use]
-        pub fn enter(&self, arena: &Arena, permanent: Permanent) -> Self {
+        pub fn enter<'arena>(&self, arena: &'arena Arena, permanent: Permanent) -> Board<'arena> {
             Board {
                 permanents: push(
                     arena,
-                    self.permanents.slice(),
+                    &self.permanents,
                     permanent,
                 ),
                 ..self.clone()
@@ -508,24 +511,10 @@ mod board {
             let mut board = $crate::Board::new_in(arena);
 
             $(
-                board.enter(arena, $permanents);
+                board = board.enter(arena, $permanents);
             )*
 
             board
-        });
-        ($($permanents: expr),* $(,)?) => ({
-            // TODO Is there a way to get the count without evaluating the expressions twice?
-            // Also, maybe it's worth just evaluating these particular ones, since they are 
-            // probably made with cheap/easy to optimize out expressions?
-            let count = 0;
-            let arena = arena::Arena::with_capacity(count);
-            let mut board = $crate::Board::new_in(&arena);
-
-            $(
-                board.enter(&arena, $permanents);
-            )*
-
-            (board, arena)
         });
     }
     pub use _board as board;
@@ -587,7 +576,7 @@ mod board {
 
         #[test]
         fn on_this_should_match_example() {
-            let mut arena = Arena::with_capacity(128);
+            let arena = Arena::with_capacity(128);
 
              let extra_tapped_swamp = Board {
                 mana_pool: ManaPool {
@@ -625,7 +614,7 @@ mod board {
 
         #[test]
         fn on_these_permuted_examples() {
-             let mut arena = Arena::with_capacity(128);
+             let arena = Arena::with_capacity(128);
 
              let base = Board::new_in(&arena);
 
@@ -734,7 +723,7 @@ mod board {
         b1.mana_pool.is_empty() && !b2.mana_pool.is_empty()
     }
 
-    fn push(arena: &Arena, slice: &[Permanent], element: Permanent) -> ArenaVec<'arena, Permanent> {
+    fn push<'arena>(arena: &'arena Arena, slice: &[Permanent], element: Permanent) -> ArenaVec<'arena, Permanent> {
         let mut output = ArenaVec::with_capacity_in(slice.len() + 1, arena);
 
         for e in slice.iter() {
@@ -745,7 +734,7 @@ mod board {
         output
     }
 
-    fn set_at(arena: &Arena, slice: &[Permanent], index: PermanentIndex, element: Permanent) -> ArenaVec<'arena, Permanent> {
+    fn set_at<'arena>(arena: &'arena Arena, slice: &[Permanent], index: PermanentIndex, element: Permanent) -> ArenaVec<'arena, Permanent> {
         let mut output = ArenaVec::with_capacity_in(slice.len(), arena);
         for e in slice.iter() {
             output.push(e.clone());
@@ -758,7 +747,7 @@ mod board {
         output
     }
 
-    fn remove(arena: &Arena, slice: &[Permanent], index: PermanentIndex) -> Option<(ArenaVec<'arena, Permanent>, Permanent)> {
+    fn remove<'arena>(arena: &'arena Arena, slice: &[Permanent], index: PermanentIndex) -> Option<(ArenaVec<'arena, Permanent>, Permanent)> {
         if let Some(element) = slice.get(index).cloned() {
             let mut output = ArenaVec::with_capacity_in(slice.len() - 1, arena);
 
@@ -944,7 +933,7 @@ mod board {
 
     type ApplyManaAbilityError = ();
 
-    pub fn apply_mana_ability<'arena>(arena: &'arena Arena, board: &Board<'arena>, mana_ability: &ManaAbility) -> Result<Board, ApplyManaAbilityError> {
+    pub fn apply_mana_ability<'arena>(arena: &'arena Arena, board: &Board<'arena>, mana_ability: &ManaAbility) -> Result<Board<'arena>, ApplyManaAbilityError> {
         macro_rules! tap_for {
             ($board: ident $(,)? $pool: expr) => {
                 $board.tap_permanent_at(arena, mana_ability.permanent_index)
@@ -1477,6 +1466,10 @@ mod board {
     type TapPermanentError = ();
 
     impl Board<'_> {
+        fn clone_in<'arena>(&self, arena: &'arena Arena) -> Board<'arena> {
+            todo!()
+        }
+
         pub fn cast_options(&self, card: Card) -> impl ExactSizeIterator<Item = Ability> {
             use Card::*;
             // Note: only provide the options that are castable via the mana_pool on self
@@ -1571,7 +1564,11 @@ mod board {
             }
         }
 
-        pub fn sacrifice_creatures(&self, arena: &Arena, creature_count: super::CreatureCount) -> Result<impl Iterator<Item = Self>, super::SacrificeCreaturesError> {
+        pub fn sacrifice_creatures<'arena>(
+            &self,
+            arena: &'arena Arena,
+            creature_count: super::CreatureCount
+        ) -> Result<impl Iterator<Item = Board<'arena>>, super::SacrificeCreaturesError> {
             let sacrificeable_creatures = self.sacrificeable_creatures();
             if (creature_count as usize) > sacrificeable_creatures.len() {
                 return Err(())
@@ -1582,7 +1579,7 @@ mod board {
             let mut output = Vec::with_capacity(creature_count as usize * 3 /* probably not a good estimate! */);
 
             while let Some(subset) = subsets.next() {
-                let mut state = self.clone();
+                let mut state = self.clone_in(arena);
 
                 for index in subset.into_iter().rev() {
                     state = state.sacrifice_creature_at(arena, *index)?;
@@ -1594,12 +1591,12 @@ mod board {
             Ok(output.into_iter())
         }
 
-        fn sacrifice_creature_at(&self, arena: &Arena, permanent_index: PermanentIndex) -> Result<Self, super::SacrificeCreaturesError> {
+        fn sacrifice_creature_at<'arena>(&self, arena: &'arena Arena, permanent_index: PermanentIndex) -> Result<Board<'arena>, super::SacrificeCreaturesError> {
             if let Some(to_sac) = self.permanents.get(permanent_index) {
                 if to_sac.is_a_creature() {
                     // TODO: Tracking the graveyard
                     // TODO: On-sacrifice triggers if we ever need them
-                    let Some((permanents, _)) = remove(
+                    let Some((permanents, _)): Option<(ArenaVec<'arena, Permanent>, Permanent)> = remove(
                         arena,
                         &self.permanents,
                         permanent_index,
@@ -1607,10 +1604,14 @@ mod board {
                         return Err(())
                     };
 
-                    Ok(Self {
+                    let permanents: ArenaVec<'arena, Permanent> = permanents;
+
+                    let board: Board<'arena> = Board {
                         permanents,
-                        ..self.clone()
-                    })
+                        mana_pool: self.mana_pool.clone()
+                    };
+
+                    Ok(board)
                 } else {
                     Err(())
                 }
@@ -1621,18 +1622,20 @@ mod board {
 
         /// Taps the given permanent as a cost. Returns an `Err` if it is already tapped, or if there is
         /// no permanent at that index.
-        fn tap_permanent_at(&self, arena: &Arena, permanent_index: PermanentIndex) -> Result<Self, TapPermanentError> {
+        fn tap_permanent_at<'arena>(&self, arena: &'arena Arena, permanent_index: PermanentIndex) -> Result<Board<'arena>, TapPermanentError> {
             if let Some(old) = self.permanents.get(permanent_index) {
                 if old.is_tapped() {
                     Err(())
                 } else {
-                    Ok(Self {
-                        permanents: set_at(
-                            arena,
-                            &self.permanents,
-                            permanent_index,
-                            old.tapped(),
-                        ),
+                    let permanents: ArenaVec<'arena, Permanent> = set_at(
+                        arena,
+                        &self.permanents,
+                        permanent_index,
+                        old.tapped(),
+                    );
+
+                    Ok(Board {
+                        permanents,
                         ..self.clone()
                     })
                 }
@@ -1768,11 +1771,11 @@ impl <'arena> State<'arena> {
             .map(|b| self.with_board(b))
     }
 
-    fn attempt_to_cast(
+    fn attempt_to_cast<'arena>(
         &self,
-        arena: &Arena,
+        arena: &'arena Arena,
         card_index: CardIndex,
-    ) -> Result<impl Iterator<Item = Self>, AttemptToCastError> {
+    ) -> Result<impl Iterator<Item = State<'arena>>, AttemptToCastError> {
         use AttemptToCastError::*;
         use arena::{Arena, ArenaVec};
 
@@ -1895,7 +1898,7 @@ mod equiv_state_works {
             Swamp,
         ].into();
 
-        let mut arena = Arena::with_capacity(128);
+        let arena = Arena::with_capacity(128);
 
         let board1 = board!(
             Permanent::card(Swamp, 0).tapped(),
@@ -1952,6 +1955,7 @@ mod equiv_state_works {
                 Permanent::card(Swamp, 1).tapped(),
                 Permanent::card(Swamp, 2).tapped(),
                 Permanent::card(StarscapeCleric, 2),
+                => arena
             )
             .with_mana_pool(ManaPool {
                 black: 1,
@@ -1967,7 +1971,7 @@ mod equiv_state_works {
                     Permanent::card(Swamp, 2),
                     Permanent::card(StarscapeCleric, 2),
                     => arena
-                ).0
+                )
             )
         ];
 
@@ -1978,8 +1982,8 @@ mod equiv_state_works {
     }
 }
 
-impl State<'_> {
-    fn add_casting_states(&self, arena: &Arena, output: &mut Vec<Result<Self, OutcomeAt>>) {
+impl <'arena> State<'arena> {
+    fn add_casting_states(&self, arena: &'arena Arena, output: &mut Vec<Result<State<'arena>, OutcomeAt>>) {
         let mut castable_card_indexes = Vec::with_capacity(self.hand.len());
         for (card_index, card) in self.hand.iter().enumerate() {
             if card.is_castable() {
@@ -2018,7 +2022,7 @@ impl State<'_> {
                 // TODO? is it worth it to avoid doing all the work
                 // of calling apply_mana_ability and doing all these loops up front by making this a custom iterator?
                 for mana_ability in mana_abilities.ordered_iter() {
-                    if let Ok(board) = board::apply_mana_ability(&arena, &current_board, &mana_ability) {
+                    if let Ok(board) = board::apply_mana_ability(arena, &current_board, &mana_ability) {
                         current_board = board;
                     }
                 }
@@ -2028,10 +2032,8 @@ impl State<'_> {
                     ..self.clone()
                 };
 
-                let arena = Arena::with_capacity(/* Not a realy great bound */ 1024);
-
                 for card_index in &castable_card_indexes {
-                    match spend_state.attempt_to_cast(&arena, *card_index) {
+                    match spend_state.attempt_to_cast(arena, *card_index) {
                         Ok(cast_states) => {
                             for unwrapped_cast_state in cast_states {
                                 let cast_state = Equiv(unwrapped_cast_state);
@@ -2066,16 +2068,19 @@ mod add_casting_states_works {
 
     #[test]
     fn on_these_examples_where_multiple_redundant_paths_are_possible() {
+        let arena = Arena::with_capacity(128);
+
         {
             // We want a state where there are 3 swamps and a starscape cleric is in hand
             // And we want to only get one state back out
             let hand = vec![StarscapeCleric];
             let deck = vec![Swamp];
 
-            let (board, arena) = board!(
+            let board = board!(
                 Permanent::card(Swamp, INITIAL_TURN_NUMBER),
                 Permanent::card(Swamp, INITIAL_TURN_NUMBER),
                 Permanent::card(Swamp, INITIAL_TURN_NUMBER),
+                => arena
             );
 
             let state = State::new(&arena, hand, deck.into())
@@ -2094,10 +2099,11 @@ mod add_casting_states_works {
             let hand = vec![StarscapeCleric, StarscapeCleric];
             let deck = vec![Swamp];
 
-            let (board, arena) = board!(
+            let board = board!(
                 Permanent::card(Swamp, INITIAL_TURN_NUMBER),
                 Permanent::card(Swamp, INITIAL_TURN_NUMBER),
                 Permanent::card(Swamp, INITIAL_TURN_NUMBER),
+                => arena
             );
 
             let state = State::new(&arena, hand, deck.into())
@@ -2156,17 +2162,19 @@ mod add_casting_states_works {
 
     #[test]
     fn on_these_examples_where_we_care_about_order() {
-        let arena = Arena::with_capacity(16);
         // We want an example state where we have multiple options to test
         // we get the state where we did play something out first
         let hand = vec![Swamp, Swamp, StarscapeCleric, StarscapeCleric];
         let deck = vec![Swamp];
 
-        let (board, arena) = board!(
+        let arena = Arena::with_capacity(128);
+
+        let board = board!(
             Permanent::card(Swamp, INITIAL_TURN_NUMBER),
             Permanent::card(Swamp, INITIAL_TURN_NUMBER),
             Permanent::card(Swamp, INITIAL_TURN_NUMBER),
             Permanent::card(Swamp, INITIAL_TURN_NUMBER),
+            => arena
         );
 
         let state = State::new(&arena, hand, deck.into())
@@ -2176,29 +2184,36 @@ mod add_casting_states_works {
 
         state.add_casting_states(&arena, &mut output);
 
+        let board = board!(
+            // We specifically want the 0 mana pool
+            Permanent::card(Swamp, INITIAL_TURN_NUMBER).tapped(),
+            Permanent::card(Swamp, INITIAL_TURN_NUMBER).tapped(),
+            Permanent::card(Swamp, INITIAL_TURN_NUMBER),
+            Permanent::card(Swamp, INITIAL_TURN_NUMBER),
+            Permanent::card(StarscapeCleric, INITIAL_TURN_NUMBER),
+            => arena
+        );
+
         assert_eq!(
             output.clone().into_iter().map(|s| s.unwrap().board).collect::<Vec<_>>(),
             vec![
-                // We specifically want the 0 mana pool
-                board!(
-                    Permanent::card(Swamp, INITIAL_TURN_NUMBER).tapped(),
-                    Permanent::card(Swamp, INITIAL_TURN_NUMBER).tapped(),
-                    Permanent::card(Swamp, INITIAL_TURN_NUMBER),
-                    Permanent::card(Swamp, INITIAL_TURN_NUMBER),
-                    Permanent::card(StarscapeCleric, INITIAL_TURN_NUMBER),
-                ).0
+                board
             ],
         );
     }
 }
 
 impl State<'_> {
-    fn apply_effect(&self, arena: &Arena, effect: Effect) -> Result<std::vec::IntoIter<Self>, EffectError> {
+    fn clone_in<'arena>(&self, arena: &'arena Arena) -> State<'arena> {
+        todo!()
+    }
+
+    fn apply_effect<'arena>(&self, arena: &'arena Arena, effect: Effect) -> Result<std::vec::IntoIter<State<'arena>>, EffectError> {
         use Effect::*;
         match effect {
             AddMana(pool) => {
                 self.with_additional_mana(pool)
-                    .map(|s| vec![s].into_iter())
+                    .map(|s| vec![s.clone_in(arena)].into_iter())
             },
             SearchForCardTopOfDeckShuffle
             // SchemingSymmetry isn't meaningfully different agaist a goldfish
@@ -2219,19 +2234,21 @@ impl State<'_> {
                         let Some(index) =
                             self.deck.iter()
                             .position(|c| c == card) else {
-                                return self.clone();
+                                return self.clone_in(arena);
                             };
 
                         let mut deck = self.deck.clone();
 
                         deck.swap(0, index);
 
-                        Self {
+                        let state: State<'arena> = State {
                             deck,
-                            ..self.clone()
-                        }
+                            ..self.clone_in(arena)
+                        };
+
+                        state
                     })
-                    .collect::<Vec<_>>()
+                    .collect::<Vec<State<'arena>>>()
                     .into_iter()
                 )
             },
@@ -2242,11 +2259,13 @@ impl State<'_> {
 
                 let (hand, removed) = remove(&self.hand, index).ok_or(())?;
 
-                Ok(vec![Self {
+                let state: State<'arena> = State {
                     hand: hand.to_vec(),
-                    board: self.board.enter(Permanent::card(removed, self.turn_number)),
+                    board: self.board.enter(arena, Permanent::card(removed, self.turn_number)),
                     ..self.clone()
-                }].into_iter())
+                };
+
+                Ok(vec![state].into_iter())
             },
             Offspring(card) => {
                 let index = self.hand.iter().position(|c| c == &card).ok_or(())?;
@@ -2255,7 +2274,7 @@ impl State<'_> {
 
                 let token = Permanent::token_of(card, self.turn_number).with_p_t(1, 1);
 
-                Ok(vec![Self {
+                Ok(vec![State {
                     hand: hand.to_vec(),
                     board: self.board.enter(arena, Permanent::card(removed, self.turn_number)).enter(arena, token),
                     ..self.clone()
@@ -2572,11 +2591,15 @@ fn length_n_subsets(slice: &[Index], target_length: u8) -> LengthNIndexSubsets {
 type SacrificeCreaturesError = ();
 
 impl State<'_> {
-    fn sacrifice_creatures(&self, arena: &Arena, creature_count: CreatureCount) -> Result<impl Iterator<Item = Self> + '_, SacrificeCreaturesError> {
+    fn sacrifice_creatures<'arena>(
+        &self,
+        arena: &'arena Arena,
+        creature_count: CreatureCount
+    ) -> Result<impl Iterator<Item = State<'arena>> + 'arena, SacrificeCreaturesError> {
         self.board.sacrifice_creatures(
             arena,
             creature_count
-        ).map(|boards| boards.map(|board| Self { board, ..self.clone() }))
+        ).map(move |boards| boards.map(|board| State { board, ..self.clone_in(arena) }))
     }
 }
 
@@ -3034,7 +3057,7 @@ mod calculate_step_works {
 
     #[test]
     fn when_you_can_swing_for_lethal_next_combat() {
-        let mut arena = Arena::with_capacity(128);
+        let arena = Arena::with_capacity(128);
 
         let deck: [Card; 6] = [
             Swamp,
@@ -3077,7 +3100,7 @@ mod calculate_step_works {
 
     #[test]
     fn in_this_case_that_should_not_produce_multiple_outputs_where_starscape_cleric_is_played() {
-        let mut arena = Arena::with_capacity(128);
+        let arena = Arena::with_capacity(128);
 
         let hand = vec![
             StarscapeCleric,
@@ -3104,7 +3127,8 @@ mod calculate_step_works {
              Permanent::card(Swamp, INITIAL_TURN_NUMBER),
              Permanent::card(Swamp, INITIAL_TURN_NUMBER + 1),
              Permanent::card(Swamp, INITIAL_TURN_NUMBER + 2),
-        ).0;
+            => arena
+        );
         state.turn_number = INITIAL_TURN_NUMBER + 2;
         state.land_plays = 0;
 
