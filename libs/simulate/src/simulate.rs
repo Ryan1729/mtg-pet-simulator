@@ -249,7 +249,7 @@ mod non_empty {
 
 type StepOutput<'arena> = non_empty::OwnedSlice<Result<State<'arena>, OutcomeAt>>;
 
-fn calculate_step<'arena>(arena: &'arena Arena, mut state: State<'arena>) -> StepOutput {
+fn calculate_step<'arena>(arena: &'arena Arena, mut state: State<'arena>) -> StepOutput<'arena> {
     macro_rules! one_path_forward {
         () => {
             return StepOutput::from(Ok(state))
@@ -1770,7 +1770,9 @@ impl <'arena> State<'arena> {
         self.board.with_additional_mana(additional_mana_pool)
             .map(|b| self.with_board(b))
     }
+}
 
+impl State<'_> {
     fn attempt_to_cast<'arena>(
         &self,
         arena: &'arena Arena,
@@ -1783,7 +1785,7 @@ impl <'arena> State<'arena> {
 
         let cast_options = self.cast_options(card);
 
-        let mut output: Vec<Self> = Vec::with_capacity(/* Not a realy great bound */ cast_options.len());
+        let mut output: Vec<State<'arena>> = Vec::with_capacity(/* Not a really great bound */ cast_options.len());
 
         for cast_option in cast_options {
             let Ok(new_boards) = self.board.spend(cast_option.mana_cost) else {
@@ -1813,7 +1815,7 @@ impl <'arena> State<'arena> {
                     for effect in cast_option.effects.iter() {
                         let mut temp = ArenaVec::with_capacity_in(effect_count, &arena);
                         for s in mapped_states.into_iter() {
-                            let applied: Result<std::vec::IntoIter<Self>, ()> = s.apply_effect(arena, *effect);
+                            let applied: Result<std::vec::IntoIter<State<'arena>>, ()> = s.apply_effect(arena, *effect);
                             temp.extend(applied.unwrap_or_else(|_| vec![s].into_iter()));
                         }
                         // Temp will get cleaned up when the arena is
@@ -2205,7 +2207,7 @@ mod add_casting_states_works {
 
 impl State<'_> {
     fn clone_in<'arena>(&self, arena: &'arena Arena) -> State<'arena> {
-        todo!()
+        todo!("clone_in")
     }
 
     fn apply_effect<'arena>(&self, arena: &'arena Arena, effect: Effect) -> Result<std::vec::IntoIter<State<'arena>>, EffectError> {
@@ -2596,10 +2598,12 @@ impl State<'_> {
         arena: &'arena Arena,
         creature_count: CreatureCount
     ) -> Result<impl Iterator<Item = State<'arena>> + 'arena, SacrificeCreaturesError> {
+        let cloned = self.clone_in(arena);
+
         self.board.sacrifice_creatures(
             arena,
             creature_count
-        ).map(move |boards| boards.map(|board| State { board, ..self.clone_in(arena) }))
+        ).map(move |boards| boards.map(move |board| State { board, ..cloned.clone() }))
     }
 }
 
