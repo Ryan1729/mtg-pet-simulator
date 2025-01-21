@@ -90,3 +90,10 @@ impl <'arena, T> ArenaVec<'arena, T> {
         self.deref()
     }
 }
+
+impl <T> ArenaVec<'_, T>
+where T: Copy {
+    pub fn extend_from_slice_copy(&mut self, slice: &[T]) {
+        self.vec.extend_from_slice_copy(slice);
+    }
+}

@@ -27,7 +27,7 @@ pub type IsTapped = bool;
 //pub type IsFaceDown = bool;
 //pub type IsPhasedOut = bool;
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Permanent {
     kind: PermanentKind,
     // "CR 110.6. A permanent’s status is its physical state. There are four status categories, each of which has two

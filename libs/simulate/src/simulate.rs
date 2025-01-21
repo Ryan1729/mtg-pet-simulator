@@ -488,6 +488,16 @@ mod board {
     }
 
     impl Board<'_> {
+        pub fn clone_in<'arena>(&self, arena: &'arena Arena) -> Board<'arena> {
+            let mut permanents = ArenaVec::with_capacity_in(self.permanents.len(), arena);
+            permanents.extend_from_slice_copy(&self.permanents);
+
+            Board {
+                mana_pool: self.mana_pool,
+                permanents,
+            }
+        }
+
         #[must_use]
         pub fn enter<'arena>(&self, arena: &'arena Arena, permanent: Permanent) -> Board<'arena> {
             Board {
@@ -1466,10 +1476,6 @@ mod board {
     type TapPermanentError = ();
 
     impl Board<'_> {
-        fn clone_in<'arena>(&self, arena: &'arena Arena) -> Board<'arena> {
-            todo!()
-        }
-
         pub fn cast_options(&self, card: Card) -> impl ExactSizeIterator<Item = Ability> {
             use Card::*;
             // Note: only provide the options that are castable via the mana_pool on self
@@ -1754,7 +1760,25 @@ impl <'arena> State<'arena> {
             opponents_life: INITIAL_LIFE,
         }
     }
+}
 
+impl State<'_> {
+    pub fn clone_in<'arena>(&self, arena: &'arena Arena) -> State<'arena> {
+        let board: Board<'arena> = self.board.clone_in(arena);
+
+        State {
+            hand: self.hand.clone(),
+            board,
+            deck: self.deck.clone(),
+            turn_number: self.turn_number,
+            step: self.step,
+            land_plays: self.land_plays,
+            opponents_life: self.opponents_life,
+        }
+    }
+}
+
+impl <'arena> State<'arena> {
     fn with_board<'new_arena>(&self, board: Board<'new_arena>) -> State<'new_arena> {
         State {
             board,
@@ -1949,7 +1973,7 @@ mod equiv_state_works {
 
     #[test]
     fn when_binary_searching() {
-        let mut arena = Arena::with_capacity(128);
+        let arena = Arena::with_capacity(128);
 
         let needle = Equiv(
             board!(
@@ -2206,10 +2230,6 @@ mod add_casting_states_works {
 }
 
 impl State<'_> {
-    fn clone_in<'arena>(&self, arena: &'arena Arena) -> State<'arena> {
-        todo!("clone_in")
-    }
-
     fn apply_effect<'arena>(&self, arena: &'arena Arena, effect: Effect) -> Result<std::vec::IntoIter<State<'arena>>, EffectError> {
         use Effect::*;
         match effect {
@@ -2243,9 +2263,11 @@ impl State<'_> {
 
                         deck.swap(0, index);
 
+                        let cloned: State<'arena> = self.clone_in(arena);
+
                         let state: State<'arena> = State {
                             deck,
-                            ..self.clone_in(arena)
+                            ..cloned
                         };
 
                         state
@@ -3027,7 +3049,7 @@ mod calculate_step_works {
 
     #[test]
     fn when_you_can_swing_for_lethal_first_combat() {
-        let mut arena = Arena::with_capacity(128);
+        let arena = Arena::with_capacity(128);
 
         let deck: [Card; 6] = [
             Swamp,
