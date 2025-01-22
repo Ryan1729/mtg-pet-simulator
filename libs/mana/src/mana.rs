@@ -98,19 +98,22 @@ impl ManaPool {
             colorless: self.colorless.checked_sub(cost.colorless).ok_or(())?,
         };
 
-        let mut output: Vec<Self> = Vec::with_capacity(1 + cost.generic as usize * MANA_POOL_TYPE_COUNT);
+        let mut output: Vec<Self> = Vec::with_capacity(
+            1 + cost.generic as usize * MANA_POOL_TYPE_COUNT,
+        );
         output.push(besides_generic);
+
+        let mut start_index = 0;
 
         while cost.generic > 0 {
             cost.generic = cost.generic.checked_sub(1).ok_or(())?;
 
-            // One option if this function shows up on the profile again is an arena allocating multiple vecs and only
-            // returning a pointer to the final one. This would avoid the copying.
-            let mut temp = output.clone();
+            let previous_index = start_index;
+            start_index = output.len();
 
-            output.clear();
+            for i in previous_index..start_index {
+                let current = output[i];
 
-            for current in temp.into_iter() {
                 if let Some(colorless) = current.colorless.checked_sub(1) {
                     output.push(
                         Self {
@@ -131,9 +134,8 @@ impl ManaPool {
             }
         }
 
-        if output.is_empty() {
-            return Err(())
-        }
+        // We'll see if this shows up on the profile. If so, consider a VecDeque, or custom deduping iterator.
+        output.drain(..start_index);
 
         output.sort();
         output.dedup();
