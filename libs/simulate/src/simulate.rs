@@ -1575,6 +1575,10 @@ mod board {
             arena: &'arena Arena,
             creature_count: super::CreatureCount
         ) -> Result<impl Iterator<Item = Board<'arena>>, super::SacrificeCreaturesError> {
+            if creature_count == 0 {
+                return Ok(vec![self.clone_in(arena)].into_iter());
+            }
+
             let sacrificeable_creatures = self.sacrificeable_creatures();
             if (creature_count as usize) > sacrificeable_creatures.len() {
                 return Err(())
@@ -1766,6 +1770,12 @@ impl State<'_> {
     pub fn clone_in<'arena>(&self, arena: &'arena Arena) -> State<'arena> {
         let board: Board<'arena> = self.board.clone_in(arena);
 
+        self.with_board(board)
+    }
+}
+
+impl <'arena> State<'arena> {
+    fn with_board<'new_arena>(&self, board: Board<'new_arena>) -> State<'new_arena> {
         State {
             hand: self.hand.clone(),
             board,
@@ -1774,15 +1784,6 @@ impl State<'_> {
             step: self.step,
             land_plays: self.land_plays,
             opponents_life: self.opponents_life,
-        }
-    }
-}
-
-impl <'arena> State<'arena> {
-    fn with_board<'new_arena>(&self, board: Board<'new_arena>) -> State<'new_arena> {
-        State {
-            board,
-            ..self.clone()
         }
     }
 
@@ -2620,6 +2621,8 @@ impl State<'_> {
         arena: &'arena Arena,
         creature_count: CreatureCount
     ) -> Result<impl Iterator<Item = State<'arena>> + 'arena, SacrificeCreaturesError> {
+        // TODO Could have the inner method return somethign we can check the length on, 
+        // and if it is 0 avoid this clone.
         let cloned = self.clone_in(arena);
 
         self.board.sacrifice_creatures(
