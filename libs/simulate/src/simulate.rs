@@ -14,7 +14,7 @@ use mana::{ManaCost, ManaPool};
 use permanent::{Permanent, TurnNumber, INITIAL_TURN_NUMBER};
 
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, BTreeMap};
+use std::collections::{BTreeSet, BTreeMap, BinaryHeap};
 use std::iter::ExactSizeIterator;
 
 type PermutationNumber = u128;
@@ -141,6 +141,43 @@ mod heap_wrapper_works {
     }
 }
 
+// Macros because making a struct induces lifetime nonsense
+
+macro_rules! new_states {
+    () => {(
+        std::collections::BinaryHeap::with_capacity(64),
+        HashSet::with_capacity_and_seed(64, 0xca55e77e),
+    )}
+}
+
+macro_rules! push_state {
+    (
+        $states: ident,
+        $seen: ident ,
+        $state: expr $(,)?
+    ) => ({
+        let states: &mut BinaryHeap<HeapWrapper> = &mut $states;
+        let seen: &mut HashSet<State> = &mut $seen;
+        let s = $state;
+
+        if !seen.contains(&s) {
+            // Could probably just store the hash here
+            // and avoid the clone.
+            // Something like this maybe?
+            // https://www.somethingsimilar.com/2012/05/21/the-opposite-of-a-bloom-filter/
+            seen.insert(s.clone());
+            states.push(HeapWrapper(s));
+        } else {
+            // TODO: Count how often this occurs, and confirm that the states we want to match are in fact 
+            // matching. For example, given three non-basic lands, casting a two mana spell shouldn't produce
+            // parallel threads
+            // Maybe tracking how many separate branches there are would be useful?
+            // A simple way to go from a state and see the tree of states from that one seems useful
+            panic!("seen.contains(&s)");
+        }
+    })
+}
+
 pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> {
     if deck.len() > MAX_DECK_SIZE as _ {
         return Err(DeckTooLarge);
@@ -155,7 +192,7 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
     let arena_base = Arena::with_capacity(1 << 12);
     let arena = &arena_base;
 
-    let mut states = std::collections::BinaryHeap::with_capacity(64);
+    let (mut states, mut seen) = new_states!();
 
     let mut hand = Vec::with_capacity(16);
 
@@ -173,28 +210,18 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
         }
     }
 
-    let mut seen = HashSet::with_capacity_and_seed(64, 0xca55e77e);
-    macro_rules! push_state {
-        ($state: expr) => ({
-            let s = $state;
-            if !seen.contains(&s) {
-                // Could probably just store the hash here
-                // and avoid the clone.
-                // Something like this maybe?
-                // https://www.somethingsimilar.com/2012/05/21/the-opposite-of-a-bloom-filter/
-                seen.insert(s.clone());
-                states.push(HeapWrapper(s));
-            }
-        })
-    }
-
-    push_state!(State::new(arena, hand, deck));
+    push_state!(states, seen, State::new(arena, hand, deck));
 
     match spec.pet {
         Goldfish => {
             let mut outcomes = Vec::with_capacity(64);
 
-            while let Some(HeapWrapper(state)) = states.pop() {
+            loop {
+                let Some(HeapWrapper(state)) = states.pop() else {
+                    break
+                };
+                let state: State = state;
+
                 let results = calculate_step(arena, state);
 
                 for result in results.into_vec().into_iter() {
@@ -204,7 +231,7 @@ pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> 
                             match spec.turn_bounds {
                                 StopAt(max_turn) => {
                                     if s.turn_number <= max_turn {
-                                        push_state!(s);
+                                        push_state!(states, seen, s);
                                     }
                                 }
                             }
@@ -3173,6 +3200,59 @@ mod calculate_step_works {
         }
 
         assert_eq!(has_cleric_count, 1);
+    }
+
+    #[test]
+    fn in_this_case_that_should_not_produce_two_streams_after_we_get_to_the_next_turn() {
+        let arena = Arena::with_capacity(128);
+
+        let hand = vec![
+            StarscapeCleric,
+            StarscapeCleric,
+            StarscapeCleric,
+            StarscapeCleric,
+        ].into();
+
+        let deck = vec![
+            TheDrossPits,
+            TheDrossPits,
+            TheDrossPits,
+            TheDrossPits,
+        ].into();
+
+        let mut state = State::new(&arena, hand, deck);
+        state.step = MainPhase1;
+        state.board = board!(
+             Permanent::card(Swamp, INITIAL_TURN_NUMBER),
+             Permanent::card(HagraMauling, INITIAL_TURN_NUMBER + 1),
+             Permanent::card(MemorialToFolly, INITIAL_TURN_NUMBER + 2),
+            => arena
+        );
+        state.turn_number = INITIAL_TURN_NUMBER + 3;
+        state.land_plays = 0;
+
+        let (mut states, mut seen) = new_states!();
+        push_state!(states, seen, state);
+
+        while let Some(HeapWrapper(state)) = states.pop() {
+            let outcomes = calculate_step(&arena, state);
+
+            for outcome in outcomes.into_vec().into_iter() {
+                let mut state = outcome.unwrap();
+
+                // So we only go until one step (Untap) into the next turn
+                if state.step != Draw {
+                    push_state!(states, seen, state);
+                }
+            }
+        }
+
+        let seen_untaps = seen.iter()
+            .filter(|s| s.step == Untap)
+            .collect::<Vec<_>>();
+
+        // Did play a cleric and didn't.
+        assert_eq!(seen_untaps.len(), 2);
     }
 }
 
