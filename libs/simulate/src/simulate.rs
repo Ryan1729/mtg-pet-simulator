@@ -167,15 +167,29 @@ macro_rules! push_state {
             // https://www.somethingsimilar.com/2012/05/21/the-opposite-of-a-bloom-filter/
             seen.insert(s.clone());
             states.push(HeapWrapper(s));
-        } else {
-            // TODO: Count how often this occurs, and confirm that the states we want to match are in fact 
-            // matching. For example, given three non-basic lands, casting a two mana spell shouldn't produce
-            // parallel threads
-            // Maybe tracking how many separate branches there are would be useful?
-            // A simple way to go from a state and see the tree of states from that one seems useful
-            panic!("seen.contains(&s)");
         }
-    })
+    });
+    (
+        $states: ident,
+        $seen: ident ,
+        $state: expr ,
+        $callback: expr $(,)?
+    ) => ({
+        let states: &mut BinaryHeap<HeapWrapper> = &mut $states;
+        let seen: &mut HashSet<State> = &mut $seen;
+        let s = $state;
+
+        $callback(&s);
+
+        if !seen.contains(&s) {
+            // Could probably just store the hash here
+            // and avoid the clone.
+            // Something like this maybe?
+            // https://www.somethingsimilar.com/2012/05/21/the-opposite-of-a-bloom-filter/
+            seen.insert(s.clone());
+            states.push(HeapWrapper(s));
+        }
+    });
 }
 
 pub fn calculate(spec: Spec, deck: &[Card]) -> Result<Outcomes, CalculateError> {
@@ -2086,6 +2100,7 @@ impl <'arena> State<'arena> {
                     ..self.clone()
                 };
 
+                dbg!(&spend_state, &castable_card_indexes);
                 for card_index in &castable_card_indexes {
                     match spend_state.attempt_to_cast(arena, *card_index) {
                         Ok(cast_states) => {
@@ -2104,7 +2119,9 @@ impl <'arena> State<'arena> {
                                 }
                             }
                         },
-                        Err(_) => {}
+                        Err(e) => {
+                            println!("{e:?}");
+                        }
                     }
                 }
             }
@@ -2253,6 +2270,45 @@ mod add_casting_states_works {
             vec![
                 board
             ],
+        );
+    }
+
+    #[test]
+    fn on_this_example_where_we_should_both_play_and_not_play_a_cleric() {
+        let arena = Arena::with_capacity(128);
+
+        let hand = vec![
+            StarscapeCleric,
+            StarscapeCleric,
+            StarscapeCleric,
+            StarscapeCleric,
+        ].into();
+
+        let deck = vec![
+            TheDrossPits,
+            TheDrossPits,
+            TheDrossPits,
+            TheDrossPits,
+        ].into();
+
+        let mut state = State::new(&arena, hand, deck);
+        state.step = MainPhase1;
+        state.board = board!(
+             Permanent::card(Swamp, INITIAL_TURN_NUMBER),
+             Permanent::card(HagraMauling, INITIAL_TURN_NUMBER + 1),
+             Permanent::card(MemorialToFolly, INITIAL_TURN_NUMBER + 2),
+            => arena
+        );
+        state.turn_number = INITIAL_TURN_NUMBER + 3;
+        state.land_plays = 0;
+
+        let mut output = Vec::with_capacity(2);
+
+        state.add_casting_states(&arena, &mut output);
+
+        assert_eq!(
+            output.len(),
+            2
         );
     }
 }
@@ -3232,17 +3288,22 @@ mod calculate_step_works {
         state.land_plays = 0;
 
         let (mut states, mut seen) = new_states!();
-        push_state!(states, seen, state);
+        fn callback(s: &State) {
+            dbg!(s.step);
+        }
+
+        push_state!(states, seen, state, callback);
 
         while let Some(HeapWrapper(state)) = states.pop() {
             let outcomes = calculate_step(&arena, state);
+            dbg!(&outcomes);
 
             for outcome in outcomes.into_vec().into_iter() {
                 let mut state = outcome.unwrap();
 
                 // So we only go until one step (Untap) into the next turn
                 if state.step != Draw {
-                    push_state!(states, seen, state);
+                    push_state!(states, seen, state, callback);
                 }
             }
         }
