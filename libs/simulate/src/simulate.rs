@@ -984,7 +984,11 @@ mod board {
 
     type ApplyManaAbilityError = ();
 
-    pub fn apply_mana_ability<'arena>(arena: &'arena Arena, board: &Board<'arena>, mana_ability: &ManaAbility) -> Result<Board<'arena>, ApplyManaAbilityError> {
+    pub fn apply_mana_ability<'arena>(
+        arena: &'arena Arena,
+        board: &Board<'arena>,
+        mana_ability: &ManaAbility
+    ) -> Result<Board<'arena>, ApplyManaAbilityError> {
         macro_rules! tap_for {
             ($board: ident $(,)? $pool: expr) => {
                 $board.tap_permanent_at(arena, mana_ability.permanent_index)
@@ -1676,6 +1680,7 @@ mod board {
         fn tap_permanent_at<'arena>(&self, arena: &'arena Arena, permanent_index: PermanentIndex) -> Result<Board<'arena>, TapPermanentError> {
             if let Some(old) = self.permanents.get(permanent_index) {
                 if old.is_tapped() {
+                    if true { panic!("old.is_tapped()"); }
                     Err(())
                 } else {
                     let permanents: ArenaVec<'arena, Permanent> = set_at(
@@ -2089,11 +2094,20 @@ impl <'arena> State<'arena> {
 
                 // TODO? is it worth it to avoid doing all the work
                 // of calling apply_mana_ability and doing all these loops up front by making this a custom iterator?
+                dbg!("{");
                 for mana_ability in mana_abilities.ordered_iter() {
-                    if let Ok(board) = board::apply_mana_ability(arena, &current_board, &mana_ability) {
-                        current_board = board;
+                    dbg!(&current_board, &mana_ability);
+                    match board::apply_mana_ability(arena, &current_board, &mana_ability) {
+                        Ok(board) => {
+                            current_board = board;
+                        }
+                        Err(e) => {
+                            dbg!(e);
+                        }
                     }
                 }
+                dbg!("}");
+                dbg!(&current_board);
 
                 let spend_state = State {
                     board: current_board,
