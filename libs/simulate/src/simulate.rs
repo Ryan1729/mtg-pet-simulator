@@ -1680,7 +1680,6 @@ mod board {
         fn tap_permanent_at<'arena>(&self, arena: &'arena Arena, permanent_index: PermanentIndex) -> Result<Board<'arena>, TapPermanentError> {
             if let Some(old) = self.permanents.get(permanent_index) {
                 if old.is_tapped() {
-                    if true { panic!("old.is_tapped()"); }
                     Err(())
                 } else {
                     let permanents: ArenaVec<'arena, Permanent> = set_at(
@@ -2079,7 +2078,8 @@ impl <'arena> State<'arena> {
 
             let mut seen_mana_abilities: HashSet<_> = HashSet::default();
 
-            while let Some(mana_abilities) = all_mana_ability_subsets.next() {
+            'mana_abilities: while let Some(mana_abilities) = all_mana_ability_subsets.next() {
+                dbg!(&mana_abilities);
                 let key = board::to_key_set(&mana_abilities);
 
                 if seen_mana_abilities.contains(&key) {
@@ -2101,8 +2101,10 @@ impl <'arena> State<'arena> {
                         Ok(board) => {
                             current_board = board;
                         }
-                        Err(e) => {
-                            dbg!(e);
+                        Err(_) => {
+                            // We currently expect things like trying to tap already tapped swamps to come through
+                            // here.
+                            continue 'mana_abilities;
                         }
                     }
                 }
@@ -2114,7 +2116,6 @@ impl <'arena> State<'arena> {
                     ..self.clone()
                 };
 
-                dbg!(&spend_state, &castable_card_indexes);
                 for card_index in &castable_card_indexes {
                     match spend_state.attempt_to_cast(arena, *card_index) {
                         Ok(cast_states) => {
@@ -2315,6 +2316,9 @@ mod add_casting_states_works {
         );
         state.turn_number = INITIAL_TURN_NUMBER + 3;
         state.land_plays = 0;
+        for permanent in state.board.permanents_mut() {
+            *permanent = permanent.untapped();
+        }
 
         let mut output = Vec::with_capacity(2);
 
