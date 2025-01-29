@@ -369,6 +369,13 @@ fn calculate_step<'arena>(arena: &'arena Arena, mut state: State<'arena>) -> Ste
                 *permanent = permanent.untapped();
             }
 
+            set_step!(state, Upkeep);
+
+            one_path_forward!()
+        }
+        Upkeep => {
+            check_state_based_actions!();
+
             set_step!(state, Draw);
 
             one_path_forward!()
@@ -1747,7 +1754,7 @@ use board::{Board, board};
 enum Step {
     #[default]
     Untap,
-    //Upkeep,
+    Upkeep,
     Draw,
     MainPhase1,
     //BeginningOfCombat,
@@ -2079,7 +2086,6 @@ impl <'arena> State<'arena> {
             let mut seen_mana_abilities: HashSet<_> = HashSet::default();
 
             'mana_abilities: while let Some(mana_abilities) = all_mana_ability_subsets.next() {
-                dbg!(&mana_abilities);
                 let key = board::to_key_set(&mana_abilities);
 
                 if seen_mana_abilities.contains(&key) {
@@ -2094,22 +2100,18 @@ impl <'arena> State<'arena> {
 
                 // TODO? is it worth it to avoid doing all the work
                 // of calling apply_mana_ability and doing all these loops up front by making this a custom iterator?
-                dbg!("{");
                 for mana_ability in mana_abilities.ordered_iter() {
-                    dbg!(&current_board, &mana_ability);
                     match board::apply_mana_ability(arena, &current_board, &mana_ability) {
                         Ok(board) => {
                             current_board = board;
                         }
-                        Err(_) => {
+                        Err(()) => {
                             // We currently expect things like trying to tap already tapped swamps to come through
                             // here.
                             continue 'mana_abilities;
                         }
                     }
                 }
-                dbg!("}");
-                dbg!(&current_board);
 
                 let spend_state = State {
                     board: current_board,
@@ -2289,7 +2291,8 @@ mod add_casting_states_works {
     }
 
     #[test]
-    fn on_this_example_where_we_should_both_play_and_not_play_a_cleric() {
+    fn on_this_example_where_we_should_at_least_pick_each_land_pair() {
+        // We might want to have it try drawing a card with Dross Pits here.
         let arena = Arena::with_capacity(128);
 
         let hand = vec![
@@ -2324,9 +2327,8 @@ mod add_casting_states_works {
 
         state.add_casting_states(&arena, &mut output);
 
-        assert_eq!(
-            output.len(),
-            2
+        assert!(
+            output.len() > 3
         );
     }
 }
@@ -3277,7 +3279,7 @@ mod calculate_step_works {
     }
 
     #[test]
-    fn in_this_case_that_should_not_produce_two_streams_after_we_get_to_the_next_turn() {
+    fn in_this_case_that_should_produce_two_options() {
         let arena = Arena::with_capacity(128);
 
         let hand = vec![
@@ -3305,33 +3307,71 @@ mod calculate_step_works {
         state.turn_number = INITIAL_TURN_NUMBER + 3;
         state.land_plays = 0;
 
+        let outcomes = calculate_step(&arena, state);
+        let outcomes = outcomes.into_vec();
+
+        // Did play a cleric and didn't.
+        assert_eq!(outcomes.len(), 2, "{outcomes:#?}");
+    }
+
+    #[test]
+    fn in_this_case_that_should_not_produce_two_streams_after_we_get_to_the_next_turn() {
+        let arena = Arena::with_capacity(128);
+
+        let hand = vec![
+            StarscapeCleric,
+            StarscapeCleric,
+            StarscapeCleric,
+            StarscapeCleric,
+        ].into();
+
+        let deck = vec![
+            TheDrossPits,
+            TheDrossPits,
+            TheDrossPits,
+            TheDrossPits,
+        ].into();
+
+        let mut state = State::new(&arena, hand, deck);
+        state.step = MainPhase1;
+        state.board = board!(
+             Permanent::card(Swamp, INITIAL_TURN_NUMBER),
+             Permanent::card(HagraMauling, INITIAL_TURN_NUMBER + 1),
+             Permanent::card(MemorialToFolly, INITIAL_TURN_NUMBER + 2),
+            => arena
+        );
+        state.turn_number = INITIAL_TURN_NUMBER + 3;
+        state.land_plays = 0;
+        for permanent in state.board.permanents_mut() {
+            *permanent = permanent.untapped();
+        }
+
         let (mut states, mut seen) = new_states!();
         fn callback(s: &State) {
-            dbg!(s.step);
+
         }
 
         push_state!(states, seen, state, callback);
 
         while let Some(HeapWrapper(state)) = states.pop() {
             let outcomes = calculate_step(&arena, state);
-            dbg!(&outcomes);
 
             for outcome in outcomes.into_vec().into_iter() {
                 let mut state = outcome.unwrap();
 
-                // So we only go until one step (Untap) into the next turn
+                // So we only go a bit past the Untap step into the next turn
                 if state.step != Draw {
                     push_state!(states, seen, state, callback);
                 }
             }
         }
 
-        let seen_untaps = seen.iter()
-            .filter(|s| s.step == Untap)
+        let seen_upkeeps = seen.iter()
+            .filter(|s| s.step == Upkeep)
             .collect::<Vec<_>>();
 
         // Did play a cleric and didn't.
-        assert_eq!(seen_untaps.len(), 2);
+        assert_eq!(seen_upkeeps.len(), 2, "{seen_upkeeps:#?}");
     }
 }
 
