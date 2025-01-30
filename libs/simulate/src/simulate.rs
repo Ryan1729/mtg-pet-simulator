@@ -2147,6 +2147,17 @@ impl <'arena> State<'arena> {
         for new_state in new_states {
             output.push(Ok(new_state.0));
         }
+
+        let mut already_seen = false;
+        for s in output.iter() {
+            already_seen = Ok(self) == s.as_ref();
+            if already_seen {
+                break
+            }
+        }
+        if !already_seen {
+            output.push(Ok(self.clone()));
+        }
     }
 }
 
@@ -2328,7 +2339,8 @@ mod add_casting_states_works {
         state.add_casting_states(&arena, &mut output);
 
         assert!(
-            output.len() > 3
+            output.len() > 3,
+            "{output:#?}"
         );
     }
 }
