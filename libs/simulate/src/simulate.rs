@@ -2136,8 +2136,8 @@ impl <'arena> State<'arena> {
                                 }
                             }
                         },
-                        Err(e) => {
-                            println!("{e:?}");
+                        Err(_) => {
+
                         }
                     }
                 }
@@ -2171,7 +2171,7 @@ mod add_casting_states_works {
 
         {
             // We want a state where there are 3 swamps and a starscape cleric is in hand
-            // And we want to only get one state back out
+            // And we want to only get one play the cleric state back out
             let hand = vec![StarscapeCleric];
             let deck = vec![Swamp];
 
@@ -2189,12 +2189,13 @@ mod add_casting_states_works {
 
             state.add_casting_states(&arena, &mut output);
 
-            assert_eq!(output.len(), 1, "{output:#?}");
+            // Both playing and not playing the cleric
+            assert_eq!(output.len(), 2, "{output:#?}");
         }
 
         {
             // We want a state where there are 3 swamps and two starscape clerics in hand
-            // And we want to only get one state back out
+            // And we want to only get one play the cleric state back out
             let hand = vec![StarscapeCleric, StarscapeCleric];
             let deck = vec![Swamp];
 
@@ -2212,14 +2213,15 @@ mod add_casting_states_works {
 
             state.add_casting_states(&arena, &mut output);
 
-            assert_eq!(output.len(), 1, "{output:#?}");
+            // Both playing and not playing the cleric
+            assert_eq!(output.len(), 2, "{output:#?}");
         }
     }
 
     #[test]
     fn on_this_found_example_where_multiple_redundant_paths_are_possible() {
         // We want a state like the one we found in practice,
-        // And we want to only get one state back out
+        // And we want to only get two states back out
         let hand = vec![
             StarscapeCleric,
             StarscapeCleric,
@@ -2256,7 +2258,8 @@ mod add_casting_states_works {
 
         state.add_casting_states(&arena, &mut output);
 
-        assert_eq!(output.len(), 1, "{output:#?}");
+        // Both playing and not playing the cleric
+        assert_eq!(output.len(), 2, "{output:#?}");
     }
 
     #[test]
@@ -2296,7 +2299,8 @@ mod add_casting_states_works {
         assert_eq!(
             output.clone().into_iter().map(|s| s.unwrap().board).collect::<Vec<_>>(),
             vec![
-                board
+                board,
+                state.board.clone(),
             ],
         );
     }
