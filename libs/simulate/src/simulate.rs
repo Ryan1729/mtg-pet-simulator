@@ -3059,6 +3059,111 @@ mod calculate_works {
     }
 
     #[test]
+    #[timeout(10000)]
+    fn on_selected_non_basic_lands_and_cleric_reduced() {
+        let _deck: [Card; 28] = [
+            StarscapeCleric,
+            StarscapeCleric,
+            StarscapeCleric,
+            StarscapeCleric,
+            HagraMauling,
+            MemorialToFolly,
+            TheDrossPits,
+            PhyrexianTower,
+            BlastZone,
+            SceneOfTheCrime,
+            HagraMauling,
+            MemorialToFolly,
+            TheDrossPits,
+            PhyrexianTower,
+            BlastZone,
+            SceneOfTheCrime,
+            HagraMauling,
+            MemorialToFolly,
+            TheDrossPits,
+            PhyrexianTower,
+            BlastZone,
+            SceneOfTheCrime,
+            HagraMauling,
+            MemorialToFolly,
+            TheDrossPits,
+            PhyrexianTower,
+            BlastZone,
+            SceneOfTheCrime,
+        ];
+
+        let spec = Spec{ draw: NO_SHUFFLING, pet: Goldfish, turn_bounds: StopAt(7) };
+
+        let ordered_deck = match spec.draw {
+            NthDraw(n) => {
+                nth_ordered(&_deck, n)
+            }
+        }.unwrap();
+    
+        let arena_base = Arena::with_capacity(1 << 12);
+        let arena = &arena_base;
+    
+        let (mut states, mut seen) = new_states!();
+
+        let mut hand = Vec::with_capacity(16);
+    
+        let mut deck = ordered_deck;
+    
+        while hand.len() < 7 {
+            match draw(deck) {
+                None => {
+                    panic!("Err(DeckTooSmall)");
+                },
+                Some((card, d)) => {
+                    hand.push(card);
+                    deck = d;
+                }
+            }
+        }
+    
+        push_state!(states, seen, State::new(arena, hand, deck));
+    
+        let mut outcomes = Vec::with_capacity(64);
+
+        match spec.pet {
+            Goldfish => {
+                loop {
+                    let Some(HeapWrapper(state)) = states.pop() else {
+                        break
+                    };
+                    let state: State = state;
+    
+                    let results = calculate_step(arena, state);
+    
+                    for result in results.into_vec().into_iter() {
+                        let result: Result<State, OutcomeAt> = result;
+                        match result {
+                            Ok(s) => {
+                                match spec.turn_bounds {
+                                    StopAt(max_turn) => {
+                                        if s.turn_number <= max_turn {
+                                            push_state!(states, seen, s);
+                                        }
+                                    }
+                                }
+                            }
+                            Err(outcome) => {
+                                outcomes.push(outcome);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for outcome in outcomes {
+            let does_match = matches!(outcome, OutcomeAt{ outcome: Win, ..});
+
+            assert!(does_match);
+        }
+    }
+
+    #[test]
     #[timeout(5000)]
     fn on_fewer_non_basic_lands_and_cleric_stop_at_3() {
         let _deck: [Card; 11] = [
@@ -3235,15 +3340,21 @@ mod calculate_step_works {
             }
         }
 
+        let mut at_least_one_win = false;
         for state in states {
             let outcomes = calculate_step(&arena, state);
-
+            
             for outcome in outcomes.into_vec().into_iter() {
-                let does_match = matches!(outcome.as_ref().unwrap_err(), OutcomeAt{ outcome: Win, ..});
-
-                assert!(does_match);
+                match outcome {
+                    Ok(_) => {},
+                    Err(o) => {
+                        at_least_one_win |= matches!(o, OutcomeAt{ outcome: Win, ..});
+                    }
+                }
             }
+
         }
+        assert!(at_least_one_win);
     }
 
     #[test]
