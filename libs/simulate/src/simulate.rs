@@ -3061,6 +3061,9 @@ mod calculate_works {
     #[test]
     #[timeout(10000)]
     fn on_selected_non_basic_lands_and_cleric_reduced() {
+        // TODO get tgf implemented, and reduce things down until this actually finishes on time,
+        // output the .tgf file and hope that provides some insight on what to do next
+
         let _deck: [Card; 28] = [
             StarscapeCleric,
             StarscapeCleric,
@@ -3120,8 +3123,54 @@ mod calculate_works {
                 }
             }
         }
+
+        type Level = usize;
+
+        type Label = std::borrow::Cow<'static, str>;
+
+        struct Tree<A> {
+            elements: Vec<A>,
+            levels: Vec<Level>,
+            level: Level,
+        }
+
+        impl <A> Tree<A> {
+            fn with_capacity(capacity: usize) -> Self {
+                Self {
+                    elements: Vec::with_capacity(capacity),
+                    levels: Vec::with_capacity(capacity),
+                    level: <_>::default(),
+                }
+            }
+
+            fn push(&mut self, element: A) {
+                self.elements.push(element);
+                self.levels.push(self.level);
+            }
+
+            fn next_level(&mut self) {
+                self.level = self.level.saturating_sub(1);
+            }
+
+            fn tgf(&mut self, to_label: impl Fn(&A) -> Label) -> String {
+                todo!()
+            }
+        }
+
+        let mut tree: Tree<State> = Tree::<State>::with_capacity(128);
+
+        let mut callback = |s: &State| {
+            let s: State = s.clone_in(&arena);
+            tree.push(s);
+        };
     
-        push_state!(states, seen, State::new(arena, hand, deck));
+        push_state!(states, seen, State::new(arena, hand, deck), callback);
+        let mut callback = |s: &State| {
+            let s: State = s.clone_in(&arena);
+            tree.push(s);
+        };
+
+        tree.next_level();
     
         let mut outcomes = Vec::with_capacity(64);
 
@@ -3142,7 +3191,12 @@ mod calculate_works {
                                 match spec.turn_bounds {
                                     StopAt(max_turn) => {
                                         if s.turn_number <= max_turn {
-                                            push_state!(states, seen, s);
+                                            let mut callback = |s: &State| {
+                                                let s: State = s.clone_in(&arena);
+                                                tree.push(s);
+                                            };
+
+                                            push_state!(states, seen, s, callback);
                                         }
                                     }
                                 }
@@ -3152,9 +3206,17 @@ mod calculate_works {
                             }
                         }
                     }
+
+                    tree.next_level();
                 }
             }
         }
+
+        fn state_to_label(s: &State) -> Label {
+            Label::Owned(format!("{:?}", s.step))
+        }
+
+        println!("{}", tree.tgf(state_to_label));
 
         for outcome in outcomes {
             let does_match = matches!(outcome, OutcomeAt{ outcome: Win, ..});
