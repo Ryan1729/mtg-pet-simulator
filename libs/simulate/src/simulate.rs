@@ -3059,12 +3059,10 @@ mod calculate_works {
     }
 
     #[test]
-    #[timeout(10000)]
+    #[timeout(300000)]
+    //#[timeout(10000)]
     fn on_selected_non_basic_lands_and_cleric_reduced() {
-        // TODO Generate a tgf file that combines equivalent states according to `Equiv` and see if things look 
-        // dire after a seeing a few more levels by extending the time
-
-        let _deck: [Card; 9] = [
+        let _deck: [Card; 10] = [
             StarscapeCleric,
             StarscapeCleric,
             StarscapeCleric,
@@ -3074,7 +3072,7 @@ mod calculate_works {
             TheDrossPits,
             PhyrexianTower,
             BlastZone,
-            //SceneOfTheCrime,
+            SceneOfTheCrime,
             //HagraMauling,
             //MemorialToFolly,
             //TheDrossPits,
@@ -3145,11 +3143,6 @@ mod calculate_works {
                 }
             }
 
-            fn push(&mut self, element: A) {
-                self.elements.push(element);
-                self.parents.push(self.parent);
-            }
-
             fn tgf(&mut self, to_label: impl Fn(&A) -> Label) -> String {
                 let mut tgf = String::with_capacity(self.elements.len() * 16);
 
@@ -3174,33 +3167,47 @@ mod calculate_works {
         }
 
         impl <A: PartialEq> Tree<A> {
-            fn set_parent_to(&mut self, parent_element: &A) {
-                let mut index = NodeIndex::MAX - INDEX_TO_NAME_OFFSET;
+            fn push(&mut self, element: A) {
+                if self.get_index_of_match(&element).is_some() {
+                    // already there, don't push duplicates
+                    return
+                }
 
+                self.elements.push(element);
+                self.parents.push(self.parent);
+            }
+
+            fn get_index_of_match(&self, element: &A) -> Option<NodeIndex> {
                 for i in 0..self.elements.len() {
-                    let element = &self.elements[i];
+                    let e = &self.elements[i];
 
-                    if parent_element == element {
-                        index = i;
-                        break
+                    if element == e {
+                        return Some(i);
                     }
                 }
 
-                self.parent = index + INDEX_TO_NAME_OFFSET;
+                None
+            }
+
+            fn set_parent_to(&mut self, parent_element: &A) {
+                self.parent = self
+                    .get_index_of_match(parent_element)
+                    .unwrap_or(NodeIndex::MAX - INDEX_TO_NAME_OFFSET)
+                    + INDEX_TO_NAME_OFFSET;
             }
         }
 
-        let mut tree: Tree<State> = Tree::<State>::with_capacity(128);
+        let mut tree: Tree<Equiv<State>> = Tree::<Equiv<State>>::with_capacity(128);
 
         let mut callback = |s: &State| {
             let s: State = s.clone_in(&arena);
-            tree.push(s);
+            tree.push(Equiv(s));
         };
 
         push_state!(states, seen, State::new(arena, hand, deck), callback);
         let mut callback = |s: &State| {
             let s: State = s.clone_in(&arena);
-            tree.push(s);
+            tree.push(Equiv(s));
         };
     
         let mut outcomes = Vec::with_capacity(64);
@@ -3213,7 +3220,7 @@ mod calculate_works {
                     };
                     let state: State = state;
     
-                    tree.set_parent_to(&state);
+                    tree.set_parent_to(&Equiv(state.clone()));
 
                     let results = calculate_step(arena, state);
     
@@ -3226,7 +3233,7 @@ mod calculate_works {
                                         if s.turn_number <= max_turn {
                                             let mut callback = |s: &State| {
                                                 let s: State = s.clone_in(&arena);
-                                                tree.push(s);
+                                                tree.push(Equiv(s));
                                             };
 
                                             push_state!(states, seen, s, callback);
@@ -3243,8 +3250,9 @@ mod calculate_works {
             }
         }
 
-        fn state_to_label(s: &State) -> Label {
-            Label::Owned(format!("{:?}", s.step))
+        fn state_to_label(s: &Equiv<State>) -> Label {
+            // TODO Make a terse summary of the whole state to hopefully help spot redundancies
+            Label::Owned(format!("{:?}", s.0.step))
         }
 
         panic!("{}", tree.tgf(state_to_label));
