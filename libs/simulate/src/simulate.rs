@@ -3061,10 +3061,10 @@ mod calculate_works {
     #[test]
     #[timeout(10000)]
     fn on_selected_non_basic_lands_and_cleric_reduced() {
-        // TODO get tgf implemented, and reduce things down until this actually finishes on time,
-        // output the .tgf file and hope that provides some insight on what to do next
+        // TODO Generate a tgf file that combines equivalent states according to `Equiv` and see if things look 
+        // dire after a seeing a few more levels by extending the time
 
-        let _deck: [Card; 28] = [
+        let _deck: [Card; 9] = [
             StarscapeCleric,
             StarscapeCleric,
             StarscapeCleric,
@@ -3074,25 +3074,25 @@ mod calculate_works {
             TheDrossPits,
             PhyrexianTower,
             BlastZone,
-            SceneOfTheCrime,
-            HagraMauling,
-            MemorialToFolly,
-            TheDrossPits,
-            PhyrexianTower,
-            BlastZone,
-            SceneOfTheCrime,
-            HagraMauling,
-            MemorialToFolly,
-            TheDrossPits,
-            PhyrexianTower,
-            BlastZone,
-            SceneOfTheCrime,
-            HagraMauling,
-            MemorialToFolly,
-            TheDrossPits,
-            PhyrexianTower,
-            BlastZone,
-            SceneOfTheCrime,
+            //SceneOfTheCrime,
+            //HagraMauling,
+            //MemorialToFolly,
+            //TheDrossPits,
+            //PhyrexianTower,
+            //BlastZone,
+            //SceneOfTheCrime,
+            //HagraMauling,
+            //MemorialToFolly,
+            //TheDrossPits,
+            //PhyrexianTower,
+            //BlastZone,
+            //SceneOfTheCrime,
+            //HagraMauling,
+            //MemorialToFolly,
+            //TheDrossPits,
+            //PhyrexianTower,
+            //BlastZone,
+            //SceneOfTheCrime,
         ];
 
         let spec = Spec{ draw: NO_SHUFFLING, pet: Goldfish, turn_bounds: StopAt(7) };
@@ -3124,36 +3124,69 @@ mod calculate_works {
             }
         }
 
-        type Level = usize;
+        type NodeIndex = usize;
+        type NodeName = usize;
+        const INDEX_TO_NAME_OFFSET: usize = 1;
 
         type Label = std::borrow::Cow<'static, str>;
 
         struct Tree<A> {
             elements: Vec<A>,
-            levels: Vec<Level>,
-            level: Level,
+            parents: Vec<NodeName>,
+            parent: NodeName,
         }
 
         impl <A> Tree<A> {
             fn with_capacity(capacity: usize) -> Self {
                 Self {
                     elements: Vec::with_capacity(capacity),
-                    levels: Vec::with_capacity(capacity),
-                    level: <_>::default(),
+                    parents: Vec::with_capacity(capacity),
+                    parent: <_>::default(), // reserve this value for the root
                 }
             }
 
             fn push(&mut self, element: A) {
                 self.elements.push(element);
-                self.levels.push(self.level);
-            }
-
-            fn next_level(&mut self) {
-                self.level = self.level.saturating_sub(1);
+                self.parents.push(self.parent);
             }
 
             fn tgf(&mut self, to_label: impl Fn(&A) -> Label) -> String {
-                todo!()
+                let mut tgf = String::with_capacity(self.elements.len() * 16);
+
+                tgf.push_str("0 <ROOT>\n");
+
+                for i in 0..self.elements.len() {
+                    let element = &self.elements[i];
+                    
+                    tgf.push_str(&format!("{} {}\n", i + INDEX_TO_NAME_OFFSET, to_label(element)));
+                }
+
+                tgf.push_str("#\n");
+
+                for i in 0..self.elements.len() {
+                    let parent = self.parents[i];
+
+                    tgf.push_str(&format!("{parent} {}\n", i + INDEX_TO_NAME_OFFSET));
+                }
+
+                tgf
+            }
+        }
+
+        impl <A: PartialEq> Tree<A> {
+            fn set_parent_to(&mut self, parent_element: &A) {
+                let mut index = NodeIndex::MAX - INDEX_TO_NAME_OFFSET;
+
+                for i in 0..self.elements.len() {
+                    let element = &self.elements[i];
+
+                    if parent_element == element {
+                        index = i;
+                        break
+                    }
+                }
+
+                self.parent = index + INDEX_TO_NAME_OFFSET;
             }
         }
 
@@ -3163,14 +3196,12 @@ mod calculate_works {
             let s: State = s.clone_in(&arena);
             tree.push(s);
         };
-    
+
         push_state!(states, seen, State::new(arena, hand, deck), callback);
         let mut callback = |s: &State| {
             let s: State = s.clone_in(&arena);
             tree.push(s);
         };
-
-        tree.next_level();
     
         let mut outcomes = Vec::with_capacity(64);
 
@@ -3182,6 +3213,8 @@ mod calculate_works {
                     };
                     let state: State = state;
     
+                    tree.set_parent_to(&state);
+
                     let results = calculate_step(arena, state);
     
                     for result in results.into_vec().into_iter() {
@@ -3206,8 +3239,6 @@ mod calculate_works {
                             }
                         }
                     }
-
-                    tree.next_level();
                 }
             }
         }
@@ -3216,7 +3247,7 @@ mod calculate_works {
             Label::Owned(format!("{:?}", s.step))
         }
 
-        println!("{}", tree.tgf(state_to_label));
+        panic!("{}", tree.tgf(state_to_label));
 
         for outcome in outcomes {
             let does_match = matches!(outcome, OutcomeAt{ outcome: Win, ..});
