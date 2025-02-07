@@ -557,6 +557,37 @@ mod board {
                 ..self.clone()
             }
         }
+
+        pub fn permanent(&self, index: PermanentIndex) -> Option<&Permanent> {
+            self.permanents.get(index)
+        }
+
+        pub fn permanent_mut(&mut self, index: PermanentIndex) -> Option<&mut Permanent> {
+            self.permanents.get_mut(index)
+        }
+
+        #[allow(unused)]
+        pub fn permanent_count(&self) -> usize {
+            self.permanents.len()
+        }
+
+        pub fn permanents_mut(&mut self) -> impl Iterator<Item = &mut Permanent> {
+            self.permanents.iter_mut()
+        }
+
+        pub fn with_mana_pool(&self, mana_pool: ManaPool) -> Self {
+            Self {
+                mana_pool,
+                ..self.clone()
+            }
+        }
+
+        pub fn with_additional_mana(&self, additional_mana_pool: ManaPool) -> Result<Self, mana::AddError> {
+            Ok(Self {
+                mana_pool: self.mana_pool.add(additional_mana_pool)?,
+                ..self.clone()
+            })
+        }
     }
 
     #[macro_export]
@@ -818,34 +849,6 @@ mod board {
             Some((output.into(), element))
         } else {
             None
-        }
-    }
-
-    impl Board<'_> {
-        pub fn permanent(&self, index: PermanentIndex) -> Option<&Permanent> {
-            self.permanents.get(index)
-        }
-
-        pub fn permanent_mut(&mut self, index: PermanentIndex) -> Option<&mut Permanent> {
-            self.permanents.get_mut(index)
-        }
-
-        pub fn permanents_mut(&mut self) -> impl Iterator<Item = &mut Permanent> {
-            self.permanents.iter_mut()
-        }
-
-        pub fn with_mana_pool(&self, mana_pool: ManaPool) -> Self {
-            Self {
-                mana_pool,
-                ..self.clone()
-            }
-        }
-
-        pub fn with_additional_mana(&self, additional_mana_pool: ManaPool) -> Result<Self, mana::AddError> {
-            Ok(Self {
-                mana_pool: self.mana_pool.add(additional_mana_pool)?,
-                ..self.clone()
-            })
         }
     }
 
@@ -3059,10 +3062,11 @@ mod calculate_works {
     }
 
     #[test]
-    #[timeout(300000)]
+    #[timeout(2000000)]
+    //#[timeout(300000)]
     //#[timeout(10000)]
     fn on_selected_non_basic_lands_and_cleric_reduced() {
-        let _deck: [Card; 10] = [
+        let _deck: [Card; 11] = [
             StarscapeCleric,
             StarscapeCleric,
             StarscapeCleric,
@@ -3073,7 +3077,7 @@ mod calculate_works {
             PhyrexianTower,
             BlastZone,
             SceneOfTheCrime,
-            //HagraMauling,
+            HagraMauling,
             //MemorialToFolly,
             //TheDrossPits,
             //PhyrexianTower,
@@ -3251,8 +3255,15 @@ mod calculate_works {
         }
 
         fn state_to_label(s: &Equiv<State>) -> Label {
-            // TODO Make a terse summary of the whole state to hopefully help spot redundancies
-            Label::Owned(format!("{:?}", s.0.step))
+            let step = s.0.step;
+            let hand_len = s.0.hand.len();
+            let board_len = s.0.board.permanent_count();
+            let deck_len = s.0.deck.len();
+            let land_plays = s.0.land_plays;
+            let turn_number = s.0.turn_number;
+            let opponents_life = s.0.opponents_life;
+
+            Label::Owned(format!("{step:?} h:{hand_len} b:{board_len} d:{deck_len} l:{land_plays} t:{turn_number} o:{opponents_life}"))
         }
 
         panic!("{}", tree.tgf(state_to_label));
